@@ -1,0 +1,10 @@
+// $Id$
+// vim:ft=javascript
+
+ARG_ENABLE("parsekit", "enable parsekit support", "no");
+
+if (PHP_PARSEKIT != "no") {
+	AC_DEFINE('WITH_PARSEKIT', 1);
+	EXTENSION("parsekit", "parsekit.c");
+}
+
