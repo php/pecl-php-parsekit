@@ -1,0 +1,791 @@
+/*
+  +----------------------------------------------------------------------+
+  | PHP Version 5                                                        |
+  +----------------------------------------------------------------------+
+  | Copyright (c) 1997-2004 The PHP Group                                |
+  +----------------------------------------------------------------------+
+  | This source file is subject to version 3.0 of the PHP license,       |
+  | that is bundled with this package in the file LICENSE, and is        |
+  | available through the world-wide-web at the following url:           |
+  | http://www.php.net/license/3_0.txt.                                  |
+  | If you did not receive a copy of the PHP license and are unable to   |
+  | obtain it through the world-wide-web, please send a note to          |
+  | license@php.net so we can mail you a copy immediately.               |
+  +----------------------------------------------------------------------+
+  | Author:                                                              |
+  +----------------------------------------------------------------------+
+*/
+
+/* $Id$ */
+
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
+#include "php.h"
+#include "php_ini.h"
+#include "ext/standard/info.h"
+#include "php_parsekit.h"
+
+ZEND_DECLARE_MODULE_GLOBALS(parsekit)
+/* Potentially thread-unsafe, see MINIT_FUNCTION */
+void (*original_error_function)(int type, const char *error_filename, const uint error_lineno, const char *format, va_list args) ZEND_ATTRIBUTE_PTR_FORMAT(printf, 4, 0);
+
+/* Parsekit Workhorse */
+
+/* {{{ php_parsekit_define_name */
+static char* php_parsekit_define_name(long val, php_parsekit_define_list *lookup_list, char *unknown_default)
+{
+	php_parsekit_define_list *names;
+
+	for(names = lookup_list; names->str; names++) {
+		if (names->val == val) {
+			return names->str;
+		}
+	}
+
+	return unknown_default ? unknown_default : PHP_PARSEKIT_UNKNOWN;
+}
+/* }}} */
+
+/* {{{ php_parsekit_parse_node */
+static void php_parsekit_parse_node(zval *return_value, znode *node TSRMLS_DC)
+{
+	array_init(return_value);
+	add_assoc_long(return_value, "type", node->op_type);
+	add_assoc_string(return_value, "type_name", php_parsekit_define_name(node->op_type, php_parsekit_nodetype_names, PHP_PARSEKIT_NODETYPE_UNKNOWN), 1);
+	if (node->op_type == IS_CONST) {
+		zval *tmpzval;
+		MAKE_STD_ZVAL(tmpzval);
+		*tmpzval = node->u.constant;
+		zval_copy_ctor(tmpzval);
+		add_assoc_zval(return_value, "constant", tmpzval);
+	} else {
+		/* IS_VAR || IS_TMP_VAR || IS_UNUSED */
+		char sop[(sizeof(void *) * 2) + 1];
+
+		/* Which of these is relevant depends on the opcode
+		   Just offer them all up and let the user decide */
+		/* Probably best to only do the snprintf once,
+		   but leave in the extra calls for readability.
+		   This is just a debug extension for pete's sake. */
+		add_assoc_long(return_value, "var", node->u.var);
+
+		snprintf(sop, (sizeof(void *) * 2) + 1, "%X", (unsigned int)node->u.opline_num); 
+		add_assoc_string(return_value, "opline_num", sop, 1);
+
+		snprintf(sop, (sizeof(void *) * 2) + 1, "%X", (unsigned int)node->u.op_array); 
+		add_assoc_string(return_value, "op_array", sop, 1);
+
+		snprintf(sop, (sizeof(void *) * 2) + 1, "%X", (unsigned int)node->u.jmp_addr); 
+		add_assoc_string(return_value, "jmp_addr", sop, 1);
+
+		add_assoc_long(return_value, "EA.type", node->u.EA.type);
+	}
+}
+/* }}} */
+
+/* {{{ php_parsekit_parse_op */
+static void php_parsekit_parse_op(zval *return_value, zend_op *op TSRMLS_DC)
+{
+	zval *result, *op1, *op2;
+
+	array_init(return_value);
+
+	/* op->handler */
+	add_assoc_long(return_value, "opcode", op->opcode);
+	add_assoc_string(return_value, "opcode_name", php_parsekit_define_name(op->opcode, php_parsekit_opcode_names, PHP_PARSEKIT_OPCODE_UNKNOWN) , 1);
+
+	/* args: result, op1, op2 */
+	MAKE_STD_ZVAL(result);
+	MAKE_STD_ZVAL(op1);
+	MAKE_STD_ZVAL(op2);
+
+	php_parsekit_parse_node(result, &(op->result) TSRMLS_CC);
+	php_parsekit_parse_node(op1, &(op->op1) TSRMLS_CC);
+	php_parsekit_parse_node(op2, &(op->op2) TSRMLS_CC);
+
+	add_assoc_zval(return_value, "result", result);
+	add_assoc_zval(return_value, "op1", op1);
+	add_assoc_zval(return_value, "op2", op2);
+
+	add_assoc_long(return_value, "extended_value", op->extended_value);
+	add_assoc_long(return_value, "lineno", op->lineno);
+}
+/* }}} */
+
+/* {{{ php_parsekit_parse_arginfo */
+static void php_parsekit_parse_arginfo(zval *return_value, zend_uint num_args, zend_arg_info *arginfo TSRMLS_DC)
+{
+	zend_uint i;
+
+	array_init(return_value);
+
+	for(i = 0; i < num_args; i++) {
+		zval *tmpzval;
+
+		MAKE_STD_ZVAL(tmpzval);
+		array_init(tmpzval);
+		add_assoc_stringl(tmpzval, "name", arginfo[i].name, arginfo[i].name_len, 1);
+		if (arginfo[i].class_name_len) {
+			add_assoc_stringl(tmpzval, "class_name", arginfo[i].class_name, arginfo[i].class_name_len, 1);
+		} else {
+			add_assoc_null(tmpzval, "class_name");
+		}
+		add_assoc_bool(tmpzval, "allow_null", arginfo[i].allow_null);
+		add_assoc_bool(tmpzval, "pass_by_reference", arginfo[i].pass_by_reference);
+
+		add_next_index_zval(return_value, tmpzval);
+	}	
+}
+/* }}} */
+
+/* {{{ php_parsekit_parse_op_array */
+static void php_parsekit_parse_op_array(zval *return_value, zend_op_array *ops TSRMLS_DC)
+{
+	zend_op *op;
+	zval *tmpzval;
+	int i = 0;
+
+	array_init(return_value);
+
+	/* "Common" members */
+	add_assoc_long(return_value, "type", (long)(ops->type));
+	add_assoc_string(return_value, "type_name", php_parsekit_define_name(ops->type, php_parsekit_function_types, PHP_PARSEKIT_FUNCTYPE_UNKNOWN), 1);
+	if (ops->function_name) {
+		add_assoc_string(return_value, "function_name", ops->function_name, 1);
+	} else {
+		add_assoc_null(return_value, "function_name");
+	}
+
+	if (ops->scope && ops->scope->name) {
+		add_assoc_stringl(return_value, "scope", ops->scope->name, ops->scope->name_length, 1);
+	} else {
+		add_assoc_null(return_value, "scope");
+	}
+
+	add_assoc_long(return_value, "fn_flags", ops->fn_flags);
+	if (ops->prototype) {
+		MAKE_STD_ZVAL(tmpzval);
+		array_init(tmpzval);
+		add_assoc_long(tmpzval, "type", ops->prototype->type);
+		add_assoc_string(return_value, "type_name", php_parsekit_define_name(ops->prototype->type, php_parsekit_function_types, PHP_PARSEKIT_FUNCTYPE_UNKNOWN), 1);
+		if (ops->prototype->common.function_name) {
+			add_assoc_string(tmpzval, "function_name", ops->prototype->common.function_name, 1);
+		} else {
+			add_assoc_null(tmpzval, "function_name");
+		}
+		if (ops->prototype->common.scope && ops->prototype->common.scope->name) {
+			add_assoc_stringl(tmpzval, "scope", ops->prototype->common.scope->name, ops->prototype->common.scope->name_length, 1);
+		} else {
+			add_assoc_null(tmpzval, "scope");
+		}
+		add_assoc_zval(return_value, "prototype", tmpzval);		
+	} else {
+		add_assoc_null(return_value, "prototype");
+	}
+	add_assoc_long(return_value, "num_args", ops->num_args);
+	add_assoc_long(return_value, "required_num_args", ops->required_num_args);
+	add_assoc_bool(return_value, "pass_rest_by_reference", ops->pass_rest_by_reference);
+	add_assoc_bool(return_value, "return_reference", ops->return_reference);
+	if (ops->num_args && ops->arg_info) {
+		MAKE_STD_ZVAL(tmpzval);
+		php_parsekit_parse_arginfo(tmpzval, ops->num_args, ops->arg_info TSRMLS_CC);
+		add_assoc_zval(return_value, "arg_info", tmpzval);
+	} else {
+		add_assoc_null(return_value, "arg_info");
+	}
+	/* End "Common" */
+
+	add_assoc_long(return_value, "refcount", *(ops->refcount));
+	MAKE_STD_ZVAL(tmpzval);
+	array_init(tmpzval);
+	for(op = ops->opcodes, i = 0; op && i < ops->size; op++, i++) {
+		zval *zop;
+		char sop[(sizeof(void *) * 2) + 1];
+
+		/* Use the memory address as a convenient reference point
+		   This lets us find target ops when we JMP */
+		snprintf(sop, (sizeof(void *) * 2) + 1, "%X", (unsigned int)op);
+		MAKE_STD_ZVAL(zop);
+		php_parsekit_parse_op(zop, op TSRMLS_CC);
+		add_assoc_zval(tmpzval, sop, zop);
+	}	
+	add_assoc_zval(return_value, "opcodes", tmpzval);
+	add_assoc_long(return_value, "last", ops->last);
+	add_assoc_long(return_value, "size", ops->size);
+	add_assoc_long(return_value, "T", ops->T);
+
+	if (ops->last_brk_cont > 0) {
+		MAKE_STD_ZVAL(tmpzval);
+		array_init(tmpzval);
+		for(i = 0; i < ops->last_brk_cont; i++) {
+			zval *tmp_zval;
+
+			MAKE_STD_ZVAL(tmp_zval);
+			array_init(tmp_zval);
+			add_assoc_long(tmp_zval, "cont", ops->brk_cont_array[i].cont);
+			add_assoc_long(tmp_zval, "brk", ops->brk_cont_array[i].brk);
+			add_assoc_long(tmp_zval, "parent", ops->brk_cont_array[i].parent);
+			add_index_zval(tmpzval, i, tmp_zval);
+		}
+		add_assoc_zval(return_value, "brk_cont_array", tmpzval);
+	} else {
+		add_assoc_null(return_value, "brk_cont_array");
+	}
+	add_assoc_long(return_value, "last_brk_cont", ops->last_brk_cont);
+	add_assoc_long(return_value, "current_brk_cont", ops->current_brk_cont);
+
+	if (ops->last_try_catch > 0) {
+		MAKE_STD_ZVAL(tmpzval);
+		array_init(tmpzval);
+		for(i = 0; i < ops->last_try_catch; i++) {
+			zval *tmp_zval;
+
+			MAKE_STD_ZVAL(tmp_zval);
+			array_init(tmp_zval);
+			add_assoc_long(tmp_zval, "try_op", ops->try_catch_array[i].try_op);
+			add_assoc_long(tmp_zval, "catch_op", ops->try_catch_array[i].catch_op);
+			add_index_zval(tmpzval, i, tmp_zval);
+		}
+		add_assoc_zval(return_value, "try_catch_array", tmpzval);
+	} else {
+		add_assoc_null(return_value, "try_catch_array");
+	}
+
+	if (ops->static_variables) {
+		zval *tmp_zval;
+
+		MAKE_STD_ZVAL(tmpzval);
+		array_init(tmpzval);
+		zend_hash_copy(HASH_OF(tmpzval), ops->static_variables, (copy_ctor_func_t) zval_add_ref, (void *) &tmp_zval, sizeof(zval *));
+		add_assoc_zval(return_value, "static_variables", tmpzval);
+	} else {
+		add_assoc_null(return_value, "static_variables");
+	}
+
+	if (ops->start_op) {
+		char sop[(sizeof(void *) * 2) + 1];
+
+		snprintf(sop, sizeof(sop), "%X", (unsigned int)ops->start_op); 
+		add_assoc_string(return_value, "start_op", sop, 1);
+	} else {
+		add_assoc_null(return_value, "start_op");
+	}
+
+	add_assoc_long(return_value, "backpatch_count", ops->backpatch_count);
+	add_assoc_bool(return_value, "done_pass_two", ops->done_pass_two);
+	add_assoc_bool(return_value, "uses_this", ops->uses_this);
+
+	if (ops->filename) {
+		add_assoc_string(return_value, "filename", ops->filename, 1);
+	} else {
+		add_assoc_null(return_value, "filename");
+	}
+
+	add_assoc_long(return_value, "line_start", ops->line_start);
+	add_assoc_long(return_value, "line_end", ops->line_end);
+
+	if (ops->doc_comment && ops->doc_comment_len) {
+		add_assoc_stringl(return_value, "doc_comment", ops->doc_comment, ops->doc_comment_len, 1);
+	} else {
+		add_assoc_null(return_value, "doc_comment");
+	}
+}
+/* }}} */
+
+/* {{{ php_parsekit_pop_functions */
+static int php_parsekit_pop_functions(zval *return_value, HashTable *function_table, int target_count TSRMLS_DC)
+{
+	array_init(return_value);
+
+	while (target_count < zend_hash_num_elements(function_table)) {
+		long func_index;
+		unsigned int func_name_len;
+		char *func_name;
+		zend_function *function;
+		zval *function_ops;
+
+		zend_hash_internal_pointer_end(function_table);
+		if (zend_hash_get_current_data(function_table, (void **)&function) == FAILURE) {
+			php_error_docref(NULL TSRMLS_CC, E_ERROR, "Unable to remove pollution from function table: Illegal function entry found.");
+			return FAILURE;
+		}
+		if (function->type != ZEND_USER_FUNCTION) {
+			php_error_docref(NULL TSRMLS_CC, E_ERROR, "Unable to remove pollution from function table: "
+							"Found %s where ZEND_USER_FUNCTION was expected.", 
+							php_parsekit_define_name(function->type, php_parsekit_function_types, PHP_PARSEKIT_FUNCTYPE_UNKNOWN));
+			return FAILURE;
+		}
+		MAKE_STD_ZVAL(function_ops);
+		php_parsekit_parse_op_array(function_ops, &(function->op_array) TSRMLS_CC);
+		add_assoc_zval(return_value, function->common.function_name, function_ops);
+
+		if (zend_hash_get_current_key_ex(function_table, &func_name, &func_name_len, &func_index, 0, NULL) == HASH_KEY_IS_STRING) {
+			/* TODO: dispose of the function properly */
+			if (zend_hash_del(function_table, func_name, func_name_len) == FAILURE) {
+				php_error_docref(NULL TSRMLS_CC, E_ERROR, "Unable to remove pollution from function table: Unknown hash_del failure.");
+				return FAILURE;
+			}
+		} else {
+			/* Absolutely no reason this should ever occur */
+			zend_hash_index_del(function_table, func_index);
+		}
+	}
+
+	return SUCCESS;
+}
+/* }}} */
+
+/* {{{ php_parsekit_parse_class_entry */
+static int php_parsekit_parse_class_entry(zval *return_value, zend_class_entry *ce TSRMLS_DC)
+{
+	zval *tmpzval;
+	int i;
+
+	array_init(return_value);
+
+	add_assoc_long(return_value, "type", ce->type);
+	add_assoc_string(return_value, "type_name", php_parsekit_define_name(ce->type, php_parsekit_class_types, PHP_PARSEKIT_CLASSTYPE_UNKNOWN), 1);
+	add_assoc_stringl(return_value, "name", ce->name, ce->name_length, 1);
+	if (ce->parent) {
+		add_assoc_stringl(return_value, "parent", ce->parent->name, ce->parent->name_length, 1);
+	} else {
+		add_assoc_null(return_value, "parent");
+	}
+	add_assoc_long(return_value, "refcount", ce->refcount);
+	add_assoc_bool(return_value, "constnats_updated", ce->constants_updated);
+	add_assoc_long(return_value, "ce_flags", ce->ce_flags);
+
+	/* function table pop destorys entries! */
+	if (ce->constructor) {
+		add_assoc_string(return_value, "constructor", ce->constructor->common.function_name, 1);
+	} else {
+		add_assoc_null(return_value, "constructor");
+	}
+
+	if (ce->clone) {
+		add_assoc_string(return_value, "clone", ce->clone->common.function_name, 1);
+	} else {
+		add_assoc_null(return_value, "clone");
+	}
+
+	if (ce->__get) {
+		add_assoc_string(return_value, "__get", ce->__get->common.function_name, 1);
+	} else {
+		add_assoc_null(return_value, "__get");
+	}
+
+	if (ce->__set) {
+		add_assoc_string(return_value, "__set", ce->__set->common.function_name, 1);
+	} else {
+		add_assoc_null(return_value, "__set");
+	}
+
+	if (ce->__call) {
+		add_assoc_string(return_value, "__call", ce->__call->common.function_name, 1);
+	} else {
+		add_assoc_null(return_value, "__call");
+	}
+
+	if (zend_hash_num_elements(&(ce->function_table)) > 0) {
+		MAKE_STD_ZVAL(tmpzval);
+		if (php_parsekit_pop_functions(tmpzval, &(ce->function_table), 0 TSRMLS_CC) == FAILURE) {
+			php_error_docref(NULL TSRMLS_CC, E_ERROR, "Unable to cleanup class %s: Error scrubbing function_table", ce->name);
+			return FAILURE;
+		}
+		add_assoc_zval(return_value, "function_table", tmpzval);
+	} else {
+		add_assoc_null(return_value, "function_table");
+	}
+
+	if (zend_hash_num_elements(&(ce->default_properties)) > 0) {
+		zval *tmp_zval;
+
+		MAKE_STD_ZVAL(tmpzval);
+		array_init(tmpzval);
+		zend_hash_copy(HASH_OF(tmpzval), &(ce->default_properties), (copy_ctor_func_t) zval_add_ref, (void *) &tmp_zval, sizeof(zval *));	
+		add_assoc_zval(return_value, "default_properties", tmpzval);
+	} else {
+		add_assoc_null(return_value, "default_properties");
+	}
+
+	if (zend_hash_num_elements(&(ce->properties_info)) > 0) {
+		zend_property_info *property_info;
+
+		MAKE_STD_ZVAL(tmpzval);
+		array_init(tmpzval);
+		for(zend_hash_internal_pointer_reset(&(ce->properties_info));
+			zend_hash_get_current_data(&(ce->properties_info), (void **)&property_info) == SUCCESS;
+			zend_hash_move_forward(&(ce->properties_info))) {
+			zval *tmp_zval;
+
+			MAKE_STD_ZVAL(tmp_zval);
+			array_init(tmp_zval);
+			add_assoc_long(tmp_zval, "flags", property_info->flags);
+			add_assoc_stringl(tmp_zval, "name", property_info->name, property_info->name_length, 1);
+			add_assoc_long(tmp_zval, "h", property_info->h);
+			add_next_index_zval(tmpzval, tmp_zval);
+		}
+		add_assoc_zval(return_value, "properties_info", tmpzval);
+	} else {
+		add_assoc_null(return_value, "properties_info");
+	}
+	
+	if (ce->static_members && zend_hash_num_elements(ce->static_members) > 0) {
+		zval *tmp_zval;
+
+		MAKE_STD_ZVAL(tmpzval);
+		array_init(tmpzval);
+		zend_hash_copy(HASH_OF(tmpzval), ce->static_members, (copy_ctor_func_t) zval_add_ref, (void *) &tmp_zval, sizeof(zval *));	
+		add_assoc_zval(return_value, "static_members", tmpzval);
+	} else {
+		add_assoc_null(return_value, "static_members");
+	}
+
+	if (zend_hash_num_elements(&(ce->constants_table)) > 0) {
+		zval *tmp_zval;
+
+		MAKE_STD_ZVAL(tmpzval);
+		array_init(tmpzval);
+		zend_hash_copy(HASH_OF(tmpzval), &(ce->constants_table), (copy_ctor_func_t) zval_add_ref, (void *) &tmp_zval, sizeof(zval *));	
+		add_assoc_zval(return_value, "constants_table", tmpzval);
+	} else {
+		add_assoc_null(return_value, "constants_table");
+	}
+
+	if (ce->num_interfaces > 0) {
+		MAKE_STD_ZVAL(tmpzval);
+		array_init(tmpzval);
+		for(i = 0; i < ce->num_interfaces; i++) {
+			add_next_index_stringl(tmpzval, ce->interfaces[i]->name, ce->interfaces[i]->name_length, 1);
+		}
+		add_assoc_zval(return_value, "interfaces", tmpzval);
+	} else {
+		add_assoc_null(return_value, "interfaces");
+	}
+
+	add_assoc_string(return_value, "filename", ce->filename, 1);
+	add_assoc_long(return_value, "line_start", ce->line_start);
+	add_assoc_long(return_value, "line_end", ce->line_end);
+	if (ce->doc_comment) {
+		add_assoc_stringl(return_value, "doc_comment", ce->doc_comment, ce->doc_comment_len, 1);
+	} else {
+		add_assoc_null(return_value, "doc_comment");
+	}
+
+	return SUCCESS;
+}
+/* }}} */
+
+/* {{{ php_parsekit_pop_classes */
+static int php_parsekit_pop_classes(zval *return_value, HashTable *class_table, int target_count TSRMLS_DC)
+{
+	array_init(return_value);
+
+	while (target_count < zend_hash_num_elements(class_table)) {
+		long class_index;
+		unsigned int class_name_len;
+		char *class_name;
+		zend_class_entry *class_entry, **pce;
+		zval *class_data;
+
+		zend_hash_internal_pointer_end(class_table);
+		if (zend_hash_get_current_data(class_table, (void **)&pce) == FAILURE || !pce || !(*pce)) {
+			php_error_docref(NULL TSRMLS_CC, E_ERROR, "Unable to remove pollution from class table: Illegal class entry found.");
+			return FAILURE;
+		}
+		class_entry = *pce;
+		if (class_entry->type != ZEND_USER_CLASS) {
+			php_error_docref(NULL TSRMLS_CC, E_ERROR, "Unable to remove pollution from class table: "
+							"Found %s where ZEND_USER_CLASS was expected.", 
+							php_parsekit_define_name(class_entry->type, php_parsekit_class_types, PHP_PARSEKIT_CLASSTYPE_UNKNOWN));
+			return FAILURE;
+		}
+		MAKE_STD_ZVAL(class_data);
+		if (php_parsekit_parse_class_entry(class_data, class_entry TSRMLS_CC) == FAILURE) {
+			return FAILURE; /* Exit gracefully even though the E_ERROR condition will clean up after us */
+		}
+		add_assoc_zval(return_value, class_entry->name, class_data);
+
+		if (zend_hash_get_current_key_ex(class_table, &class_name, &class_name_len, &class_index, 0, NULL) == HASH_KEY_IS_STRING) {
+			/* TODO: dispose of the class properly */
+			if (zend_hash_del(class_table, class_name, class_name_len) == FAILURE) {
+				php_error_docref(NULL TSRMLS_CC, E_ERROR, "Unable to remove pollution from class table: Unknown hash_del failure.");
+				return FAILURE;
+			}
+		} else {
+			/* Absolutely no reason this should ever occur */
+			zend_hash_index_del(class_table, class_index);
+		}
+	}
+	return SUCCESS;
+}
+/* }}} */
+
+/* {{{ php_parsekit_common */
+static void php_parsekit_common(zval *return_value, int original_num_functions, int original_num_classes, zend_op_array *ops TSRMLS_DC)
+{
+	zval *declared_functions, *declared_classes;
+
+	/* main() */
+	php_parsekit_parse_op_array(return_value, ops TSRMLS_CC);
+
+	MAKE_STD_ZVAL(declared_functions);
+	ZVAL_NULL(declared_functions);
+
+	MAKE_STD_ZVAL(declared_classes);
+	ZVAL_NULL(declared_classes);
+
+	if (original_num_functions < zend_hash_num_elements(EG(function_table))) {
+		/* The compiled code introduced new functions, get them out of there! */
+		php_parsekit_pop_functions(declared_functions, EG(function_table), original_num_functions TSRMLS_CC);
+	}
+
+	if (original_num_classes < zend_hash_num_elements(EG(class_table))) {
+		/* The compiled code introduced new classes, get them out of here */
+		php_parsekit_pop_classes(declared_classes, EG(class_table), original_num_classes TSRMLS_CC);
+	}
+	add_assoc_zval(return_value, "function_table", declared_functions);
+	add_assoc_zval(return_value, "class_table", declared_classes);
+}
+/* }}} */
+
+/* ****************************************** */
+/* Module Housekeeping and Userland Functions */
+/* ****************************************** */
+
+/* {{{ proto array parsekit_compile_string(string phpcode)
+   Return array of opcodes compiled from phpcode */
+PHP_FUNCTION(parsekit_compile_string)
+{
+	int original_num_functions = zend_hash_num_elements(EG(function_table));
+	int original_num_classes = zend_hash_num_elements(EG(class_table));
+	zend_uchar original_handle_op_arrays;
+	zend_op_array *ops;
+	zval *zcode, *zerrors = NULL;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z|z", &zcode, &zerrors) == FAILURE) {
+		RETURN_FALSE;
+	}
+
+	if (zerrors) {
+		zval_dtor(zerrors);
+		ZVAL_NULL(zerrors);
+		PARSEKIT_G(compile_errors) = zerrors;
+	}
+
+	convert_to_string(zcode);
+	original_handle_op_arrays = CG(handle_op_arrays);
+	CG(handle_op_arrays) = 0;
+	PARSEKIT_G(in_parsekit_compile) = 1;
+	ops = compile_string(zcode, "Parsekit Compiler" TSRMLS_CC);
+	PARSEKIT_G(in_parsekit_compile) = 0;
+	PARSEKIT_G(compile_errors) = NULL;
+	CG(handle_op_arrays) = original_handle_op_arrays;
+
+
+	if (ops) {
+		php_parsekit_common(return_value, original_num_functions, original_num_classes, ops TSRMLS_CC);
+		destroy_op_array(ops TSRMLS_CC);
+		efree(ops);
+	} else {
+		RETURN_FALSE;
+	}
+}
+/* }}} */
+
+/* {{{ proto array parsekit_compile_file(string filename)
+   Return array of opcodes compiled from phpfile */
+PHP_FUNCTION(parsekit_compile_file)
+{
+	int original_num_functions = zend_hash_num_elements(EG(function_table));
+	int original_num_classes = zend_hash_num_elements(EG(class_table));
+	zend_uchar original_handle_op_arrays;
+	zend_op_array *ops;
+	zval *zfilename, *zerrors = NULL;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z|z", &zfilename, &zerrors) == FAILURE) {
+		RETURN_FALSE;
+	}
+
+	if (zerrors) {
+		zval_dtor(zerrors);
+		ZVAL_NULL(zerrors);
+		PARSEKIT_G(compile_errors) = zerrors;
+	}
+
+	convert_to_string(zfilename);
+	original_handle_op_arrays = CG(handle_op_arrays);
+	CG(handle_op_arrays) = 0;
+	PARSEKIT_G(in_parsekit_compile) = 1;
+	ops = compile_filename(ZEND_INCLUDE, zfilename TSRMLS_CC);
+	PARSEKIT_G(in_parsekit_compile) = 0;
+	PARSEKIT_G(compile_errors) = NULL;
+	CG(handle_op_arrays) = original_handle_op_arrays;
+
+	if (ops) {
+		php_parsekit_common(return_value, original_num_functions, original_num_classes, ops TSRMLS_CC);
+		destroy_op_array(ops TSRMLS_CC);
+		efree(ops);
+	} else {
+		RETURN_FALSE;
+	}
+}
+/* }}} */
+
+static
+	ZEND_BEGIN_ARG_INFO(second_arg_force_ref, 0)
+		ZEND_ARG_PASS_INFO(0)
+		ZEND_ARG_PASS_INFO(1)
+	ZEND_END_ARG_INFO()
+
+
+/* {{{ function_entry */
+function_entry parsekit_functions[] = {
+	PHP_FE(parsekit_compile_string,			second_arg_force_ref)
+	PHP_FE(parsekit_compile_file,			second_arg_force_ref)
+	{NULL, NULL, NULL}
+};
+/* }}} */
+
+/* {{{ parsekit_module_entry
+ */
+zend_module_entry parsekit_module_entry = {
+#if ZEND_MODULE_API_NO >= 20010901
+	STANDARD_MODULE_HEADER,
+#endif
+	"parsekit",
+	parsekit_functions,
+	PHP_MINIT(parsekit),
+	PHP_MSHUTDOWN(parsekit),
+	NULL, /* RINIT */
+	NULL, /* RSHUTDOWN */
+	PHP_MINFO(parsekit),
+#if ZEND_MODULE_API_NO >= 20010901
+	"0.1", /* Replace with version number for your extension */
+#endif
+	STANDARD_MODULE_PROPERTIES
+};
+/* }}} */
+
+#ifdef COMPILE_DL_PARSEKIT
+ZEND_GET_MODULE(parsekit)
+#endif
+
+/* {{{ php_parsekit_error_cb 
+	Capture error messages and locations while suppressing otherwise fatal (non-core) errors */
+static void php_parsekit_error_cb(int type, const char *error_filename, const uint error_lineno, const char *format, va_list args)
+{
+	char *buffer;
+	int buffer_len;
+	zval *tmpzval;
+	TSRMLS_FETCH();
+
+	if (!PARSEKIT_G(in_parsekit_compile) || type == E_CORE_ERROR) {
+		/* Some normal (or massively abnormal) event triggered this error. */
+		original_error_function(type, (char *)error_filename, error_lineno, format, args);
+		return;
+	}
+
+	if (!PARSEKIT_G(compile_errors)) {
+		/* All errors ignored */
+		return;
+	}
+
+	/* If an error gets triggered in here, revert to normal handling to avoid potential loop */
+	PARSEKIT_G(in_parsekit_compile) = 0;
+	MAKE_STD_ZVAL(tmpzval);
+	array_init(tmpzval);
+	add_assoc_long(tmpzval, "errno", type);
+	add_assoc_string(tmpzval, "filename", (char *)error_filename, 1);
+	add_assoc_long(tmpzval, "lineno", error_lineno);
+	buffer_len = vspprintf(&buffer, PG(log_errors_max_len), format, args);
+	add_assoc_stringl(tmpzval, "errstr", buffer, buffer_len, 1);
+
+	if (Z_TYPE_P(PARSEKIT_G(compile_errors)) == IS_NULL) {
+		array_init(PARSEKIT_G(compile_errors));
+	}
+	add_next_index_zval(PARSEKIT_G(compile_errors), tmpzval);
+
+	/* Restore compiler state */
+	PARSEKIT_G(in_parsekit_compile) = 1;
+}
+/* }}} */
+
+#define REGISTER_PARSEKIT_CONSTANTS(define_list)		\
+	{	\
+		char const_name[96];	\
+		int const_name_len;	\
+		php_parsekit_define_list *defines = (define_list);	\
+		while (defines->str) {	\
+			/* the macros don't like variable constant names */ \
+			const_name_len = snprintf(const_name, sizeof(const_name), "PARSEKIT_%s", defines->str);	\
+			zend_register_long_constant(const_name, const_name_len+1, defines->val, CONST_CS | CONST_PERSISTENT, module_number TSRMLS_CC); \
+			defines++;	\
+		}	\
+	}
+
+/* {{{ php_parsekit_init_globals
+ */
+static void php_parsekit_init_globals(zend_parsekit_globals *parsekit_globals)
+{
+	parsekit_globals->in_parsekit_compile = 0;
+	parsekit_globals->compile_errors = NULL;
+}
+/* }}} */
+
+/* {{{ PHP_MINIT_FUNCTION
+ */
+PHP_MINIT_FUNCTION(parsekit)
+{
+	REGISTER_PARSEKIT_CONSTANTS(php_parsekit_class_types);
+	REGISTER_PARSEKIT_CONSTANTS(php_parsekit_function_types);
+	REGISTER_PARSEKIT_CONSTANTS(php_parsekit_nodetype_names);
+	REGISTER_PARSEKIT_CONSTANTS(php_parsekit_opcode_names);
+
+    ZEND_INIT_MODULE_GLOBALS(parsekit, php_parsekit_init_globals, NULL);
+
+	/* Changing zend_error_cb isn't threadsafe,
+	   so we'll have to just change it for everybody
+	   and track whether or not we're in parsekit_compile()
+	   on a perthread basis and go from there.
+	   DANGER!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+	   This could tank if another module does this same hack
+	   before us then unloads. */
+	original_error_function = zend_error_cb;
+	zend_error_cb = php_parsekit_error_cb;
+
+	return SUCCESS;
+}
+/* }}} */
+
+	/* {{{ PHP_MSHUTDOWN_FUNCTION
+ */
+PHP_MSHUTDOWN_FUNCTION(parsekit)
+{
+	zend_error_cb = original_error_function;
+
+	return SUCCESS;
+}
+/* }}} */
+
+/* {{{ PHP_MINFO_FUNCTION
+ */
+PHP_MINFO_FUNCTION(parsekit)
+{
+	php_info_print_table_start();
+	php_info_print_table_header(2, "parsekit support", "enabled");
+	php_info_print_table_end();
+}
+/* }}} */
+
+
+/*
+ * Local variables:
+ * tab-width: 4
+ * c-basic-offset: 4
+ * End:
+ * vim600: noet sw=4 ts=4 fdm=marker
+ * vim<600: noet sw=4 ts=4
+ */
