@@ -29,7 +29,7 @@
 
 ZEND_DECLARE_MODULE_GLOBALS(parsekit)
 /* Potentially thread-unsafe, see MINIT_FUNCTION */
-void (*original_error_function)(int type, const char *error_filename, const uint error_lineno, const char *format, va_list args) ZEND_ATTRIBUTE_PTR_FORMAT(printf, 4, 0);
+void (*php_parsekit_original_error_function)(int type, const char *error_filename, const uint error_lineno, const char *format, va_list args) ZEND_ATTRIBUTE_PTR_FORMAT(printf, 4, 0);
 
 /* Parsekit Workhorse */
 
@@ -820,7 +820,7 @@ static void php_parsekit_error_cb(int type, const char *error_filename, const ui
 
 	if (!PARSEKIT_G(in_parsekit_compile) || type == E_CORE_ERROR) {
 		/* Some normal (or massively abnormal) event triggered this error. */
-		original_error_function(type, (char *)error_filename, error_lineno, format, args);
+		php_parsekit_original_error_function(type, (char *)error_filename, error_lineno, format, args);
 		return;
 	}
 
@@ -890,7 +890,7 @@ PHP_MINIT_FUNCTION(parsekit)
 	   DANGER!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 	   This could tank if another module does this same hack
 	   before us then unloads. */
-	original_error_function = zend_error_cb;
+	php_parsekit_original_error_function = zend_error_cb;
 	zend_error_cb = php_parsekit_error_cb;
 
 	return SUCCESS;
@@ -901,7 +901,7 @@ PHP_MINIT_FUNCTION(parsekit)
  */
 PHP_MSHUTDOWN_FUNCTION(parsekit)
 {
-	zend_error_cb = original_error_function;
+	zend_error_cb = php_parsekit_original_error_function;
 
 	return SUCCESS;
 }
