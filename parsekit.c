@@ -65,6 +65,7 @@ static void php_parsekit_parse_node(zval *return_value, znode *node, long flags,
 		MAKE_STD_ZVAL(tmpzval);
 		*tmpzval = node->u.constant;
 		zval_copy_ctor(tmpzval);
+		tmpzval->refcount = 1;
 		add_assoc_zval(return_value, "constant", tmpzval);
 	} else {
 		/* IS_VAR || IS_TMP_VAR || IS_UNUSED */
