@@ -371,6 +371,113 @@ static void php_parsekit_parse_op_array(zval *return_value, zend_op_array *ops, 
 }
 /* }}} */
 
+/* {{{ php_parsekit_parse_node_simple */
+static int php_parsekit_parse_node_simple(char **pret, znode *node, zend_op_array *oparray TSRMLS_DC)
+{
+	if (node->op_type == IS_UNUSED) {
+		if (node->u.var) {
+			if (node->u.jmp_addr >= oparray->opcodes &&
+				node->u.jmp_addr <= (oparray->opcodes + (sizeof(zend_op) * oparray->size))) {
+				spprintf(pret, 0, "#%d", node->u.jmp_addr - oparray->opcodes);
+			} else {
+				spprintf(pret, 0, "0x%X", node->u.var);
+			}
+			return 1;
+		} else {
+			*pret =  "UNUSED";
+			return 0;
+		}
+	}
+	if (node->op_type == IS_CONST) {
+		switch (node->u.constant.type) {
+			case IS_NULL:
+				*pret = "NULL";
+				return 0;
+				break;
+			case IS_BOOL:
+				if (node->u.constant.value.lval) {
+					*pret = "TRUE";
+				} else {
+					*pret = "FALSE";
+				}
+				return 0;
+				break;
+			case IS_LONG:
+				spprintf(pret, 0, "%d", node->u.constant.value.lval);
+				return 1;
+				break;
+			case IS_DOUBLE:
+				spprintf(pret, 0, "%f", node->u.constant.value.dval);
+				return 1;
+				break;
+			case IS_STRING:
+				if (node->u.constant.value.str.len > 15) {
+					spprintf(pret, 0, "'%12s...'", node->u.constant.value.str.val);
+				} else {
+					spprintf(pret, 0, "'%s'", node->u.constant.value.str.val);
+				}
+				return 1;
+				break;
+			/* Should these ever occur? */
+			case IS_RESOURCE:
+				spprintf(pret, 0, "Resource ID#%d", node->u.constant.value.lval);
+				return 1;
+				break;
+			case IS_ARRAY:
+				*pret = "Array";
+				return 0;
+				break;
+			case IS_OBJECT:
+				*pret = "Object";
+				return 0;
+				break;
+			default:
+				*pret = "Unknown";
+				return 0;
+		}
+	}
+
+	spprintf(pret, 0, "T(%d)", node->u.var / sizeof(temp_variable));
+	return 1;
+}
+/* }}} */
+
+/* {{{ php_parsekit_parse_op_array_simple */
+static void php_parsekit_parse_op_array_simple(zval *return_value, zend_op_array *ops, long options TSRMLS_DC)
+{
+	zend_op *op;
+	int i;
+	long flags;
+
+	array_init(return_value);
+
+	for (op = ops->opcodes, i = 0; op && i < ops->size; op++, i++) {
+		char *opline, *result, *op1, *op2;
+		int opline_len, freeit = 0;
+
+		if (php_parsekit_parse_node_simple(&result, &(op->result), ops TSRMLS_CC)) {
+			freeit |= 1;
+		}
+		if (php_parsekit_parse_node_simple(&op1, &(op->op1), ops TSRMLS_CC)) {
+			freeit |= 2;
+		}
+		if (php_parsekit_parse_node_simple(&op2, &(op->op2), ops TSRMLS_CC)) {
+			freeit |= 4;
+		}
+
+		opline_len = spprintf(&opline, 0, "%s %s %s %s", 
+			php_parsekit_define_name_ex(op->opcode, php_parsekit_opcode_names, &flags, PHP_PARSEKIT_OPCODE_UNKNOWN),
+			result, op1, op2);
+
+		if (freeit & 1) efree(result);
+		if (freeit & 2) efree(op1);
+		if (freeit & 4) efree(op2);
+
+		add_next_index_stringl(return_value, opline, opline_len, 0);
+	}
+}
+/* }}} */
+
 /* {{{ php_parsekit_pop_functions */
 static int php_parsekit_pop_functions(zval *return_value, HashTable *function_table, int target_count, long options TSRMLS_DC)
 {
@@ -395,7 +502,11 @@ static int php_parsekit_pop_functions(zval *return_value, HashTable *function_ta
 			return FAILURE;
 		}
 		MAKE_STD_ZVAL(function_ops);
-		php_parsekit_parse_op_array(function_ops, &(function->op_array), options TSRMLS_CC);
+		if (options == PHP_PARSEKIT_SIMPLE) {
+			php_parsekit_parse_op_array_simple(function_ops, &(function->op_array), options TSRMLS_CC);
+		} else {
+			php_parsekit_parse_op_array(function_ops, &(function->op_array), options TSRMLS_CC);
+		}
 		add_assoc_zval(return_value, function->common.function_name, function_ops);
 
 		if (zend_hash_get_current_key_ex(function_table, &func_name, &func_name_len, &func_index, 0, NULL) == HASH_KEY_IS_STRING) {
@@ -622,7 +733,11 @@ static void php_parsekit_common(zval *return_value, int original_num_functions, 
 	zval *declared_functions, *declared_classes;
 
 	/* main() */
-	php_parsekit_parse_op_array(return_value, ops, options TSRMLS_CC);
+	if (options == PHP_PARSEKIT_SIMPLE) {
+		php_parsekit_parse_op_array_simple(return_value, ops, options TSRMLS_CC);
+	} else {
+		php_parsekit_parse_op_array(return_value, ops, options TSRMLS_CC);
+	}
 
 	if (original_num_functions < zend_hash_num_elements(EG(function_table))) {
 		/* The compiled code introduced new functions, get them out of there! */
@@ -881,7 +996,10 @@ PHP_MINIT_FUNCTION(parsekit)
 	REGISTER_PARSEKIT_CONSTANTS(php_parsekit_opcode_names);
 	REGISTER_PARSEKIT_CONSTANTS(php_parsekit_opnode_flags);
 
-    ZEND_INIT_MODULE_GLOBALS(parsekit, php_parsekit_init_globals, NULL);
+	REGISTER_LONG_CONSTANT("PARSEKIT_QUIET",	PHP_PARSEKIT_QUIET,		CONST_CS | CONST_PERSISTENT );
+	REGISTER_LONG_CONSTANT("PARSEKIT_SIMPLE",	PHP_PARSEKIT_SIMPLE,		CONST_CS | CONST_PERSISTENT );
+
+	ZEND_INIT_MODULE_GLOBALS(parsekit, php_parsekit_init_globals, NULL);
 
 	/* Changing zend_error_cb isn't threadsafe,
 	   so we'll have to just change it for everybody

@@ -58,9 +58,10 @@ typedef struct _php_parsekit_define_list {
 #define PHP_PARSEKIT_TSRMLS_CC_ZE2ONLY
 #endif
 
-#define PHP_PARSEKIT_QUIET				0
+#define PHP_PARSEKIT_QUIET			0
 #define PHP_PARSEKIT_ALWAYS_SET			1
 #define PHP_PARSEKIT_ALL_ELEMENTS		2
+#define PHP_PARSEKIT_SIMPLE			3
 
 #define PHP_PARSEKIT_UNKNOWN			"UNKNOWN"
 #define PHP_PARSEKIT_OPCODE_UNKNOWN		"Unknown Opcode"
