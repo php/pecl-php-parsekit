@@ -192,6 +192,45 @@ static void php_parsekit_parse_arginfo(zval *return_value, zend_uint num_args, z
 	}	
 }
 /* }}} */
+#else
+/* {{{ php_parsekit_derive_arginfo 
+	ZE1 Func Arg loading is done via opcodes "RECV"ing from the caller */
+static void php_parsekit_derive_arginfo(zval *return_value, zend_op_array *op_array, long options TSRMLS_DC)
+{
+	int i;
+	zend_op *opcodes = op_array->opcodes;
+
+	array_init(return_value);
+
+	/* Received vars come in pairs:
+		A ZEND_FETCH_W, and a ZEND_RECV */
+	for(i = 0; i < op_array->arg_types[0]; i++) {
+		if (opcodes[i*2].opcode   == ZEND_FETCH_W &&
+			opcodes[i*2].op1.op_type == IS_CONST &&
+			opcodes[i*2].op1.u.constant.type == IS_STRING &&
+			(opcodes[(i*2)+1].opcode == ZEND_RECV || opcodes[(i*2)+1].opcode == ZEND_RECV_INIT)) {
+			zval *tmpzval;
+
+			MAKE_STD_ZVAL(tmpzval);
+			array_init(tmpzval);
+
+			add_assoc_stringl(tmpzval, "name", opcodes[i*2].op1.u.constant.value.str.val, opcodes[i*2].op1.u.constant.value.str.len, 1);
+			add_assoc_bool(tmpzval, "pass_by_reference", op_array->arg_types[i+1]);
+			if (opcodes[(i*2)+1].opcode == ZEND_RECV_INIT &&
+				opcodes[(i*2)+1].op2.op_type == IS_CONST) {
+				zval *def;
+	
+				MAKE_STD_ZVAL(def);
+				*def = opcodes[(i*2)+1].op2.u.constant;
+				zval_copy_ctor(def);
+				add_assoc_zval(tmpzval, "default", def);
+				def->refcount = 1;
+			}
+
+			add_next_index_zval(return_value, tmpzval);
+		}
+	}
+}
 #endif
 
 /* {{{ php_parsekit_parse_op_array */
@@ -284,17 +323,31 @@ static void php_parsekit_parse_op_array(zval *return_value, zend_op_array *ops, 
 
 	if (ops->arg_types) {
 		zend_uchar *arg_types = ops->arg_types;
+		int numargs = *(ops->arg_types);
 
 		MAKE_STD_ZVAL(tmpzval);
 		array_init(tmpzval);
-		while (*arg_types) {
-			add_next_index_long(tmpzval, (long)(*arg_types));
-			arg_types++;
+		add_assoc_long(tmpzval, "arg_count", numargs);
+
+		for(i = 0; i < numargs; i++) {
+			add_next_index_long(tmpzval, arg_types[i+1]);
 		}
+
 		add_assoc_zval(return_value, "arg_types", tmpzval);
-	} else if (options & PHP_PARSEKIT_ALWAYS_SET) {
-		add_assoc_null(return_value, "arg_types");
+
+		/* Emulated arg_info */
+		MAKE_STD_ZVAL(tmpzval);
+		php_parsekit_derive_arginfo(tmpzval, ops, options TSRMLS_CC);
+		add_assoc_zval(return_value, "arg_info", tmpzval);
+	} else {
+		MAKE_STD_ZVAL(tmpzval);
+		array_init(tmpzval);
+		add_assoc_long(tmpzval, "arg_count", 0);
+
+		add_assoc_zval(return_value, "arg_types", tmpzval);
+		add_assoc_null(return_value, "arg_info");
 	}
+
 	add_assoc_bool(return_value, "uses_global", ops->uses_globals);
 #endif
 /* ZE1 and ZE2 */
@@ -886,7 +939,6 @@ PHP_FUNCTION(parsekit_opcode_name)
 }
 /* }}} */
 
-#ifdef ZEND_ENGINE_2
 /* {{{ proto array parsekit_func_arginfo(mixed function)
 	Return the arg_info data for a given user function/method */
 PHP_FUNCTION(parsekit_func_arginfo)
@@ -957,9 +1009,17 @@ PHP_FUNCTION(parsekit_func_arginfo)
 
 	if (class && !function_table) {
 		zend_class_entry **pce;
+#ifndef ZEND_ENGINE_2
+		zend_class_entry *ce;
+#endif
 
 		/* Fetch class's method table */
+#ifdef ZEND_ENGINE_2
 		if (zend_lookup_class(class, class_len, &pce TSRMLS_CC) == FAILURE) {
+#else
+		pce = &ce;
+		if (zend_hash_find(EG(class_table), class, class_len + 1, (void**)&ce) == FAILURE) {
+#endif
 			php_error_docref(NULL TSRMLS_CC, E_WARNING, "Unknown class: %s", class);
 			RETURN_FALSE;
 		}
@@ -987,10 +1047,13 @@ PHP_FUNCTION(parsekit_func_arginfo)
 		RETURN_FALSE;
 	}
 
+#ifdef ZEND_ENGINE_2
 	php_parsekit_parse_arginfo(return_value, fe->common.num_args, fe->common.arg_info, 0 TSRMLS_CC);
+#else
+	php_parsekit_derive_arginfo(return_value, &fe->op_array, 0 TSRMLS_CC);
+#endif
 }
 /* }}} */
-#endif
 
 #ifdef ZEND_ENGINE_2
 static
@@ -1008,9 +1071,7 @@ function_entry parsekit_functions[] = {
 	PHP_FE(parsekit_compile_file,			second_arg_force_ref)
 	PHP_FE(parsekit_opcode_flags,			NULL)
 	PHP_FE(parsekit_opcode_name,			NULL)
-#ifdef ZEND_ENGINE_2
 	PHP_FE(parsekit_func_arginfo,			NULL)
-#endif
 	{NULL, NULL, NULL}
 };
 /* }}} */
