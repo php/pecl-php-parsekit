@@ -404,7 +404,7 @@ static int php_parsekit_parse_node_simple(char **pret, znode *node, zend_op_arra
 				return 0;
 				break;
 			case IS_LONG:
-				spprintf(pret, 0, "%d", node->u.constant.value.lval);
+				spprintf(pret, 0, "%ld", node->u.constant.value.lval);
 				return 1;
 				break;
 			case IS_DOUBLE:
@@ -421,7 +421,7 @@ static int php_parsekit_parse_node_simple(char **pret, znode *node, zend_op_arra
 				break;
 			/* Should these ever occur? */
 			case IS_RESOURCE:
-				spprintf(pret, 0, "Resource ID#%d", node->u.constant.value.lval);
+				spprintf(pret, 0, "Resource ID#%ld", node->u.constant.value.lval);
 				return 1;
 				break;
 			case IS_ARRAY:
@@ -882,6 +882,112 @@ PHP_FUNCTION(parsekit_opcode_name)
 /* }}} */
 
 #ifdef ZEND_ENGINE_2
+/* {{{ proto array parsekit_func_arginfo(mixed function)
+	Return the arg_info data for a given user function/method */
+PHP_FUNCTION(parsekit_func_arginfo)
+{
+	zval *function;
+	char *class = NULL, *fname = NULL;
+	int class_len = 0, fname_len = 0;
+	HashTable *function_table = NULL;
+	zend_function *fe = NULL;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z", &function) == FAILURE) {
+		RETURN_FALSE;
+	}
+
+	switch (Z_TYPE_P(function)) {
+		case IS_STRING:
+			fname = Z_STRVAL_P(function);
+			fname_len = Z_STRLEN_P(function);
+			function_table = EG(function_table);
+			break;
+		case IS_ARRAY:
+		{
+			zval **classname;
+			zval **funcname;
+
+			zend_hash_internal_pointer_reset(HASH_OF(function));
+
+			/* Name that class */
+			if (zend_hash_get_current_data(HASH_OF(function), (void **)&classname) == FAILURE) {
+				php_error_docref(NULL TSRMLS_CC, E_WARNING, "Expecting string or array containing two elements.");
+				RETURN_FALSE;
+			}
+			if (!classname || !*classname || (Z_TYPE_PP(classname) != IS_STRING && Z_TYPE_PP(classname) != IS_OBJECT)) {
+				php_error_docref(NULL TSRMLS_CC, E_WARNING, "Invalid class name given");
+				RETURN_FALSE;
+			}
+			if (Z_TYPE_PP(classname) == IS_STRING) {
+				class = Z_STRVAL_PP(classname);
+				class_len = Z_STRLEN_PP(classname);
+			} else {
+				class = Z_OBJCE_PP(classname)->name;
+				class_len = Z_OBJCE_PP(classname)->name_length;
+
+				/* Save looking it up later! */
+				function_table = &(Z_OBJCE_PP(classname)->function_table);
+			}
+
+			zend_hash_move_forward(HASH_OF(function));
+
+			/* Name that function */
+			if (zend_hash_get_current_data(HASH_OF(function), (void **)&funcname) == FAILURE) {
+				php_error_docref(NULL TSRMLS_CC, E_WARNING, "Expecting string or array containing two elements.");
+				RETURN_FALSE;
+			}
+			if (!funcname || !*funcname || Z_TYPE_PP(funcname) != IS_STRING) {
+				php_error_docref(NULL TSRMLS_CC, E_WARNING, "Invalid method name given");
+				RETURN_FALSE;
+			}
+			fname = Z_STRVAL_PP(funcname);
+			fname_len = Z_STRLEN_PP(funcname);
+
+			break;
+		}
+		default:
+			php_error_docref(NULL TSRMLS_CC, E_WARNING, "Expecting string or array containing two elements.");
+			RETURN_FALSE;
+	}
+
+	if (class && !function_table) {
+		zend_class_entry **pce;
+
+		/* Fetch class's method table */
+		if (zend_lookup_class(class, class_len, &pce TSRMLS_CC) == FAILURE) {
+			php_error_docref(NULL TSRMLS_CC, E_WARNING, "Unknown class: %s", class);
+			RETURN_FALSE;
+		}
+		if (!pce || !*pce) {
+			php_error_docref(NULL TSRMLS_CC, E_WARNING, "Unable to fetch class entry.");
+			RETURN_FALSE;
+		}
+
+		function_table = &((*pce)->function_table);
+	}
+
+	if (!function_table) {
+		/* Should never happen */
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Error locating function table");
+		RETURN_FALSE;
+	}
+
+	if (zend_hash_find(function_table, fname, fname_len + 1, (void **)&fe) == FAILURE) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "%s%s%s() not found.", class ? class : "", class ? "::" : "", fname);
+		RETURN_FALSE;
+	}
+
+	if (fe->type != ZEND_USER_FUNCTION) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Only user defined functions support reflection");
+		RETURN_FALSE;
+	}
+
+	php_parsekit_parse_arginfo(return_value, fe->common.num_args, fe->common.arg_info, 0 TSRMLS_CC);
+}
+/* }}} */
+#endif
+
+#ifdef ZEND_ENGINE_2
 static
 	ZEND_BEGIN_ARG_INFO(second_arg_force_ref, 0)
 		ZEND_ARG_PASS_INFO(0)
@@ -897,6 +1003,9 @@ function_entry parsekit_functions[] = {
 	PHP_FE(parsekit_compile_file,			second_arg_force_ref)
 	PHP_FE(parsekit_opcode_flags,			NULL)
 	PHP_FE(parsekit_opcode_name,			NULL)
+#ifdef ZEND_ENGINE_2
+	PHP_FE(parsekit_func_arginfo,			NULL)
+#endif
 	{NULL, NULL, NULL}
 };
 /* }}} */
