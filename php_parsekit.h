@@ -12,7 +12,7 @@
   | obtain it through the world-wide-web, please send a note to          |
   | license@php.net so we can mail you a copy immediately.               |
   +----------------------------------------------------------------------+
-  | Author:                                                              |
+  | Author: Sara Golemon <pollita@php.net>                               |
   +----------------------------------------------------------------------+
 */
 
@@ -68,7 +68,10 @@ static php_parsekit_define_list php_parsekit_function_types[] = {
 	{ ZEND_USER_FUNCTION, "ZEND_USER_FUNCTION" },
 	{ ZEND_OVERLOADED_FUNCTION, "ZEND_OVERLOADED_FUNCTION" },
 	{ ZEND_EVAL_CODE, "ZEND_EVAL_CODE" },
+#ifdef ZEND_OVERLOADED_FUNCTION_TEMPORARY
+/* ZE2 Only */
 	{ ZEND_OVERLOADED_FUNCTION_TEMPORARY, "ZEND_OVERLOADED_FUNCTION_TEMPORARY" },
+#endif
 	{ 0, NULL }
 };
 
@@ -157,6 +160,10 @@ static php_parsekit_define_list php_parsekit_opcode_names[] = {
 	{ ZEND_INCLUDE_OR_EVAL, "ZEND_INCLUDE_OR_EVAL" },
 	{ ZEND_UNSET_VAR, "ZEND_UNSET_VAR" },
 	{ ZEND_UNSET_DIM_OBJ, "ZEND_UNSET_DIM_OBJ" },
+#ifdef ZEND_ISSET_ISEMPTY
+/* ZE1 Only */
+	{ ZEND_ISSET_ISEMPTY, "ZEND_ISSET_ISEMPTY" },
+#endif
 	{ ZEND_FE_RESET, "ZEND_FE_RESET" },
 	{ ZEND_FE_FETCH, "ZEND_FE_FETCH" },
 	{ ZEND_EXIT, "ZEND_EXIT" },
@@ -186,6 +193,7 @@ static php_parsekit_define_list php_parsekit_opcode_names[] = {
 	{ ZEND_EXT_NOP, "ZEND_EXT_NOP" },
 	{ ZEND_TICKS, "ZEND_TICKS" },
 	{ ZEND_SEND_VAR_NO_REF, "ZEND_SEND_VAR_NO_REF" },
+#if PHP_MAJOR_VERSION >= 5
 	{ ZEND_CATCH, "ZEND_CATCH" },
 	{ ZEND_THROW, "ZEND_THROW" },
 	{ ZEND_FETCH_CLASS, "ZEND_FETCH_CLASS" },
@@ -214,6 +222,7 @@ static php_parsekit_define_list php_parsekit_opcode_names[] = {
 	{ ZEND_ASSIGN_DIM, "ZEND_ASSIGN_DIM" },
 	{ ZEND_ISSET_ISEMPTY_PROP_OBJ, "ZEND_ISSET_ISEMPTY_PROP_OBJ" },
 	{ ZEND_HANDLE_EXCEPTION, "ZEND_HANDLE_EXCEPTION" },
+#endif
 	{ 0, NULL }
 };
 

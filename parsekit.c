@@ -12,7 +12,7 @@
   | obtain it through the world-wide-web, please send a note to          |
   | license@php.net so we can mail you a copy immediately.               |
   +----------------------------------------------------------------------+
-  | Author:                                                              |
+  | Author: Sara Golemon <pollita@php.net>                               |
   +----------------------------------------------------------------------+
 */
 
@@ -77,8 +77,11 @@ static void php_parsekit_parse_node(zval *return_value, znode *node TSRMLS_DC)
 		snprintf(sop, (sizeof(void *) * 2) + 1, "%X", (unsigned int)node->u.op_array); 
 		add_assoc_string(return_value, "op_array", sop, 1);
 
+#if PHP_MAJOR_VERSION >= 5
+/* ZE2 Only */
 		snprintf(sop, (sizeof(void *) * 2) + 1, "%X", (unsigned int)node->u.jmp_addr); 
 		add_assoc_string(return_value, "jmp_addr", sop, 1);
+#endif
 
 		add_assoc_long(return_value, "EA.type", node->u.EA.type);
 	}
@@ -114,6 +117,7 @@ static void php_parsekit_parse_op(zval *return_value, zend_op *op TSRMLS_DC)
 }
 /* }}} */
 
+#if PHP_MAJOR_VERSION >= 5
 /* {{{ php_parsekit_parse_arginfo */
 static void php_parsekit_parse_arginfo(zval *return_value, zend_uint num_args, zend_arg_info *arginfo TSRMLS_DC)
 {
@@ -139,6 +143,7 @@ static void php_parsekit_parse_arginfo(zval *return_value, zend_uint num_args, z
 	}	
 }
 /* }}} */
+#endif
 
 /* {{{ php_parsekit_parse_op_array */
 static void php_parsekit_parse_op_array(zval *return_value, zend_op_array *ops TSRMLS_DC)
@@ -147,9 +152,10 @@ static void php_parsekit_parse_op_array(zval *return_value, zend_op_array *ops T
 	zval *tmpzval;
 	int i = 0;
 
+	/* TODO: Reorder / Organize */
+
 	array_init(return_value);
 
-	/* "Common" members */
 	add_assoc_long(return_value, "type", (long)(ops->type));
 	add_assoc_string(return_value, "type_name", php_parsekit_define_name(ops->type, php_parsekit_function_types, PHP_PARSEKIT_FUNCTYPE_UNKNOWN), 1);
 	if (ops->function_name) {
@@ -158,12 +164,13 @@ static void php_parsekit_parse_op_array(zval *return_value, zend_op_array *ops T
 		add_assoc_null(return_value, "function_name");
 	}
 
+#if PHP_MAJOR_VERSION >= 5
+/* ZE2 op_array members */
 	if (ops->scope && ops->scope->name) {
 		add_assoc_stringl(return_value, "scope", ops->scope->name, ops->scope->name_length, 1);
 	} else {
 		add_assoc_null(return_value, "scope");
 	}
-
 	add_assoc_long(return_value, "fn_flags", ops->fn_flags);
 	if (ops->prototype) {
 		MAKE_STD_ZVAL(tmpzval);
@@ -187,7 +194,7 @@ static void php_parsekit_parse_op_array(zval *return_value, zend_op_array *ops T
 	add_assoc_long(return_value, "num_args", ops->num_args);
 	add_assoc_long(return_value, "required_num_args", ops->required_num_args);
 	add_assoc_bool(return_value, "pass_rest_by_reference", ops->pass_rest_by_reference);
-	add_assoc_bool(return_value, "return_reference", ops->return_reference);
+
 	if (ops->num_args && ops->arg_info) {
 		MAKE_STD_ZVAL(tmpzval);
 		php_parsekit_parse_arginfo(tmpzval, ops->num_args, ops->arg_info TSRMLS_CC);
@@ -195,26 +202,63 @@ static void php_parsekit_parse_op_array(zval *return_value, zend_op_array *ops T
 	} else {
 		add_assoc_null(return_value, "arg_info");
 	}
-	/* End "Common" */
 
+	if (ops->last_try_catch > 0) {
+		MAKE_STD_ZVAL(tmpzval);
+		array_init(tmpzval);
+		for(i = 0; i < ops->last_try_catch; i++) {
+			zval *tmp_zval;
+
+			MAKE_STD_ZVAL(tmp_zval);
+			array_init(tmp_zval);
+			add_assoc_long(tmp_zval, "try_op", ops->try_catch_array[i].try_op);
+			add_assoc_long(tmp_zval, "catch_op", ops->try_catch_array[i].catch_op);
+			add_index_zval(tmpzval, i, tmp_zval);
+		}
+		add_assoc_zval(return_value, "try_catch_array", tmpzval);
+	} else {
+		add_assoc_null(return_value, "try_catch_array");
+	}
+
+	add_assoc_bool(return_value, "uses_this", ops->uses_this);
+	add_assoc_long(return_value, "line_start", ops->line_start);
+	add_assoc_long(return_value, "line_end", ops->line_end);
+
+	if (ops->doc_comment && ops->doc_comment_len) {
+		add_assoc_stringl(return_value, "doc_comment", ops->doc_comment, ops->doc_comment_len, 1);
+	} else {
+		add_assoc_null(return_value, "doc_comment");
+	}
+
+#else
+/* ZE1 op_array members */
+
+	if (ops->arg_types) {
+		zend_uchar *arg_types = ops->arg_types;
+
+		MAKE_STD_ZVAL(tmpzval);
+		array_init(tmpzval);
+		while (*arg_types) {
+			add_next_index_long(tmpzval, (long)(*arg_types));
+			arg_types++;
+		}
+		add_assoc_zval(return_value, "arg_types", tmpzval);
+	} else {
+		add_assoc_null(return_value, "arg_types");
+	}
+	add_assoc_bool(return_value, "uses_global", ops->uses_globals);
+#endif
+/* ZE1 and ZE2 */
+
+	add_assoc_bool(return_value, "return_reference", ops->return_reference);
 	add_assoc_long(return_value, "refcount", *(ops->refcount));
-	MAKE_STD_ZVAL(tmpzval);
-	array_init(tmpzval);
-	for(op = ops->opcodes, i = 0; op && i < ops->size; op++, i++) {
-		zval *zop;
-		char sop[(sizeof(void *) * 2) + 1];
-
-		/* Use the memory address as a convenient reference point
-		   This lets us find target ops when we JMP */
-		snprintf(sop, (sizeof(void *) * 2) + 1, "%X", (unsigned int)op);
-		MAKE_STD_ZVAL(zop);
-		php_parsekit_parse_op(zop, op TSRMLS_CC);
-		add_assoc_zval(tmpzval, sop, zop);
-	}	
-	add_assoc_zval(return_value, "opcodes", tmpzval);
 	add_assoc_long(return_value, "last", ops->last);
 	add_assoc_long(return_value, "size", ops->size);
 	add_assoc_long(return_value, "T", ops->T);
+	add_assoc_long(return_value, "last_brk_cont", ops->last_brk_cont);
+	add_assoc_long(return_value, "current_brk_cont", ops->current_brk_cont);
+	add_assoc_long(return_value, "backpatch_count", ops->backpatch_count);
+	add_assoc_bool(return_value, "done_pass_two", ops->done_pass_two);
 
 	if (ops->last_brk_cont > 0) {
 		MAKE_STD_ZVAL(tmpzval);
@@ -232,25 +276,6 @@ static void php_parsekit_parse_op_array(zval *return_value, zend_op_array *ops T
 		add_assoc_zval(return_value, "brk_cont_array", tmpzval);
 	} else {
 		add_assoc_null(return_value, "brk_cont_array");
-	}
-	add_assoc_long(return_value, "last_brk_cont", ops->last_brk_cont);
-	add_assoc_long(return_value, "current_brk_cont", ops->current_brk_cont);
-
-	if (ops->last_try_catch > 0) {
-		MAKE_STD_ZVAL(tmpzval);
-		array_init(tmpzval);
-		for(i = 0; i < ops->last_try_catch; i++) {
-			zval *tmp_zval;
-
-			MAKE_STD_ZVAL(tmp_zval);
-			array_init(tmp_zval);
-			add_assoc_long(tmp_zval, "try_op", ops->try_catch_array[i].try_op);
-			add_assoc_long(tmp_zval, "catch_op", ops->try_catch_array[i].catch_op);
-			add_index_zval(tmpzval, i, tmp_zval);
-		}
-		add_assoc_zval(return_value, "try_catch_array", tmpzval);
-	} else {
-		add_assoc_null(return_value, "try_catch_array");
 	}
 
 	if (ops->static_variables) {
@@ -273,24 +298,28 @@ static void php_parsekit_parse_op_array(zval *return_value, zend_op_array *ops T
 		add_assoc_null(return_value, "start_op");
 	}
 
-	add_assoc_long(return_value, "backpatch_count", ops->backpatch_count);
-	add_assoc_bool(return_value, "done_pass_two", ops->done_pass_two);
-	add_assoc_bool(return_value, "uses_this", ops->uses_this);
-
 	if (ops->filename) {
 		add_assoc_string(return_value, "filename", ops->filename, 1);
 	} else {
 		add_assoc_null(return_value, "filename");
 	}
 
-	add_assoc_long(return_value, "line_start", ops->line_start);
-	add_assoc_long(return_value, "line_end", ops->line_end);
+	/* Leave this last, it simplifies readability */
+	MAKE_STD_ZVAL(tmpzval);
+	array_init(tmpzval);
+	for(op = ops->opcodes, i = 0; op && i < ops->size; op++, i++) {
+		zval *zop;
+		char sop[(sizeof(void *) * 2) + 1];
 
-	if (ops->doc_comment && ops->doc_comment_len) {
-		add_assoc_stringl(return_value, "doc_comment", ops->doc_comment, ops->doc_comment_len, 1);
-	} else {
-		add_assoc_null(return_value, "doc_comment");
-	}
+		/* Use the memory address as a convenient reference point
+		   This lets us find target ops when we JMP */
+		snprintf(sop, (sizeof(void *) * 2) + 1, "%X", (unsigned int)op);
+		MAKE_STD_ZVAL(zop);
+		php_parsekit_parse_op(zop, op TSRMLS_CC);
+		add_assoc_zval(tmpzval, sop, zop);
+	}	
+	add_assoc_zval(return_value, "opcodes", tmpzval);
+
 }
 /* }}} */
 
@@ -341,7 +370,9 @@ static int php_parsekit_pop_functions(zval *return_value, HashTable *function_ta
 static int php_parsekit_parse_class_entry(zval *return_value, zend_class_entry *ce TSRMLS_DC)
 {
 	zval *tmpzval;
+#if PHP_MAJOR_VERSION >= 5
 	int i;
+#endif
 
 	array_init(return_value);
 
@@ -353,8 +384,9 @@ static int php_parsekit_parse_class_entry(zval *return_value, zend_class_entry *
 	} else {
 		add_assoc_null(return_value, "parent");
 	}
-	add_assoc_long(return_value, "refcount", ce->refcount);
 	add_assoc_bool(return_value, "constnats_updated", ce->constants_updated);
+#if PHP_MAJOR_VERSION >= 5
+/* ZE2 class_entry members */
 	add_assoc_long(return_value, "ce_flags", ce->ce_flags);
 
 	/* function table pop destorys entries! */
@@ -386,28 +418,6 @@ static int php_parsekit_parse_class_entry(zval *return_value, zend_class_entry *
 		add_assoc_string(return_value, "__call", ce->__call->common.function_name, 1);
 	} else {
 		add_assoc_null(return_value, "__call");
-	}
-
-	if (zend_hash_num_elements(&(ce->function_table)) > 0) {
-		MAKE_STD_ZVAL(tmpzval);
-		if (php_parsekit_pop_functions(tmpzval, &(ce->function_table), 0 TSRMLS_CC) == FAILURE) {
-			php_error_docref(NULL TSRMLS_CC, E_ERROR, "Unable to cleanup class %s: Error scrubbing function_table", ce->name);
-			return FAILURE;
-		}
-		add_assoc_zval(return_value, "function_table", tmpzval);
-	} else {
-		add_assoc_null(return_value, "function_table");
-	}
-
-	if (zend_hash_num_elements(&(ce->default_properties)) > 0) {
-		zval *tmp_zval;
-
-		MAKE_STD_ZVAL(tmpzval);
-		array_init(tmpzval);
-		zend_hash_copy(HASH_OF(tmpzval), &(ce->default_properties), (copy_ctor_func_t) zval_add_ref, (void *) &tmp_zval, sizeof(zval *));	
-		add_assoc_zval(return_value, "default_properties", tmpzval);
-	} else {
-		add_assoc_null(return_value, "default_properties");
 	}
 
 	if (zend_hash_num_elements(&(ce->properties_info)) > 0) {
@@ -472,6 +482,42 @@ static int php_parsekit_parse_class_entry(zval *return_value, zend_class_entry *
 		add_assoc_stringl(return_value, "doc_comment", ce->doc_comment, ce->doc_comment_len, 1);
 	} else {
 		add_assoc_null(return_value, "doc_comment");
+	}
+
+	add_assoc_long(return_value, "refcount", ce->refcount);
+
+#else
+/* ZE1 class_entry members */
+	if (ce->refcount) {
+		add_assoc_long(return_value, "refcount", *(ce->refcount));
+	} else {
+		add_assoc_null(return_value, "refcount");
+	}
+
+#endif
+/* ZE1 and ZE2 */
+
+
+	if (zend_hash_num_elements(&(ce->function_table)) > 0) {
+		MAKE_STD_ZVAL(tmpzval);
+		if (php_parsekit_pop_functions(tmpzval, &(ce->function_table), 0 TSRMLS_CC) == FAILURE) {
+			php_error_docref(NULL TSRMLS_CC, E_ERROR, "Unable to cleanup class %s: Error scrubbing function_table", ce->name);
+			return FAILURE;
+		}
+		add_assoc_zval(return_value, "function_table", tmpzval);
+	} else {
+		add_assoc_null(return_value, "function_table");
+	}
+
+	if (zend_hash_num_elements(&(ce->default_properties)) > 0) {
+		zval *tmp_zval;
+
+		MAKE_STD_ZVAL(tmpzval);
+		array_init(tmpzval);
+		zend_hash_copy(HASH_OF(tmpzval), &(ce->default_properties), (copy_ctor_func_t) zval_add_ref, (void *) &tmp_zval, sizeof(zval *));	
+		add_assoc_zval(return_value, "default_properties", tmpzval);
+	} else {
+		add_assoc_null(return_value, "default_properties");
 	}
 
 	return SUCCESS;
@@ -587,7 +633,11 @@ PHP_FUNCTION(parsekit_compile_string)
 
 	if (ops) {
 		php_parsekit_common(return_value, original_num_functions, original_num_classes, ops TSRMLS_CC);
+#if PHP_MAJOR_VERSION >= 5
 		destroy_op_array(ops TSRMLS_CC);
+#else
+		destroy_op_array(ops);
+#endif
 		efree(ops);
 	} else {
 		RETURN_FALSE;
@@ -626,7 +676,11 @@ PHP_FUNCTION(parsekit_compile_file)
 
 	if (ops) {
 		php_parsekit_common(return_value, original_num_functions, original_num_classes, ops TSRMLS_CC);
+#if PHP_MAJOR_VERSION >= 5
 		destroy_op_array(ops TSRMLS_CC);
+#else
+		destroy_op_array(ops);
+#endif
 		efree(ops);
 	} else {
 		RETURN_FALSE;
@@ -634,12 +688,15 @@ PHP_FUNCTION(parsekit_compile_file)
 }
 /* }}} */
 
+#if PHP_MAJOR_VERSION >= 5
 static
 	ZEND_BEGIN_ARG_INFO(second_arg_force_ref, 0)
 		ZEND_ARG_PASS_INFO(0)
 		ZEND_ARG_PASS_INFO(1)
 	ZEND_END_ARG_INFO()
-
+#else
+static unsigned char second_arg_force_ref[] = { 3, BYREF_NONE, BYREF_FORCE };
+#endif
 
 /* {{{ function_entry */
 function_entry parsekit_functions[] = {
