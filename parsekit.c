@@ -602,7 +602,7 @@ static int php_parsekit_parse_class_entry(zval *return_value, zend_class_entry *
 	} else if (options & PHP_PARSEKIT_ALWAYS_SET) {
 		add_assoc_null(return_value, "parent");
 	}
-	add_assoc_bool(return_value, "constnats_updated", ce->constants_updated);
+	add_assoc_bool(return_value, "constants_updated", ce->constants_updated);
 #ifdef ZEND_ENGINE_2
 /* ZE2 class_entry members */
 	add_assoc_long(return_value, "ce_flags", ce->ce_flags);

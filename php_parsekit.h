@@ -34,6 +34,9 @@ PHP_MINFO_FUNCTION(parsekit);
 
 PHP_FUNCTION(parsekit_compile_string);
 PHP_FUNCTION(parsekit_compile_file);
+PHP_FUNCTION(parsekit_opcode_flags);
+PHP_FUNCTION(parsekit_opcode_name);
+PHP_FUNCTION(parsekit_func_arginfo);
 
 ZEND_BEGIN_MODULE_GLOBALS(parsekit)
 	int in_parsekit_compile;
