@@ -754,7 +754,11 @@ static int php_parsekit_pop_classes(zval *return_value, HashTable *class_table, 
 			php_error_docref(NULL TSRMLS_CC, E_ERROR, "Unable to remove pollution from class table: Illegal class entry found.");
 			return FAILURE;
 		}
+#ifdef ZEND_ENGINE_2
 		class_entry = *pce;
+#else
+		class_entry = (zend_class_entry*)pce;
+#endif
 		if (class_entry->type != ZEND_USER_CLASS) {
 			php_error_docref(NULL TSRMLS_CC, E_ERROR, "Unable to remove pollution from class table: "
 							"Found %s where ZEND_USER_CLASS was expected.", 
