@@ -411,14 +411,10 @@ static void php_parsekit_parse_op_array(zval *return_value, zend_op_array *ops, 
 	array_init(tmpzval);
 	for(op = ops->opcodes, i = 0; op && i < ops->size; op++, i++) {
 		zval *zop;
-		char sop[(sizeof(void *) * 2) + 1];
 
-		/* Use the memory address as a convenient reference point
-		   This lets us find target ops when we JMP */
-		snprintf(sop, (sizeof(void *) * 2) + 1, "%X", (unsigned int)op);
 		MAKE_STD_ZVAL(zop);
 		php_parsekit_parse_op(zop, op, options TSRMLS_CC);
-		add_assoc_zval(tmpzval, sop, zop);
+		add_next_index_zval(tmpzval, zop);
 	}	
 	add_assoc_zval(return_value, "opcodes", tmpzval);
 
