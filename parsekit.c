@@ -29,7 +29,7 @@
 
 ZEND_DECLARE_MODULE_GLOBALS(parsekit)
 /* Potentially thread-unsafe, see MINIT_FUNCTION */
-void (*php_parsekit_original_error_function)(int type, const char *error_filename, const uint error_lineno, const char *format, va_list args) ZEND_ATTRIBUTE_PTR_FORMAT(printf, 4, 0);
+void (*php_parsekit_original_error_function)(int type, const char *error_filename, const uint error_lineno, const char *format, va_list args);
 
 /* Parsekit Workhorse */
 
