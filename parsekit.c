@@ -377,10 +377,15 @@ static int php_parsekit_parse_node_simple(char **pret, znode *node, zend_op_arra
 {
 	if (node->op_type == IS_UNUSED) {
 		if (node->u.var) {
+#ifdef ZEND_ENGINE_2
 			if (node->u.jmp_addr >= oparray->opcodes &&
-				node->u.jmp_addr <= (oparray->opcodes + (sizeof(zend_op) * oparray->size))) {
+				node->u.jmp_addr <= (oparray->opcodes + (sizeof(zend_op) * oparray->size))) 
+			{
 				spprintf(pret, 0, "#%d", node->u.jmp_addr - oparray->opcodes);
-			} else {
+			} 
+			else
+#endif
+			{
 				spprintf(pret, 0, "0x%X", node->u.var);
 			}
 			return 1;
