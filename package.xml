@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
 <package version="1.0">
   <name>parsekit</name>
   <summary>PHP Opcode Analyser</summary>
@@ -17,7 +18,7 @@
   </maintainers>
 
    <release>
-     <version>0.1</version>
+     <version>0.2</version>
      <state>alpha</state>
      <date>2004-05-06</date>
      <notes>Initial Release</notes>
@@ -32,9 +33,6 @@
          <file role="script" name="compile_string_show_errors.php"/>
        </dir>
      </filelist>
-     <deps>
-       <dep type="php" rel="ge" version="5.0.0" />
-     </deps>
-    </release>
+   </release>
 
 </package>
