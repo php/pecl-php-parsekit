@@ -1063,18 +1063,18 @@ PHP_FUNCTION(parsekit_func_arginfo)
 
 #ifdef ZEND_ENGINE_2
 static
-	ZEND_BEGIN_ARG_INFO(second_arg_force_ref, 0)
+	ZEND_BEGIN_ARG_INFO(php_parsekit_second_arg_force_ref, 0)
 		ZEND_ARG_PASS_INFO(0)
 		ZEND_ARG_PASS_INFO(1)
 	ZEND_END_ARG_INFO()
 #else
-static unsigned char second_arg_force_ref[] = { 3, BYREF_NONE, BYREF_FORCE };
+static unsigned char php_parsekit_second_arg_force_ref[] = { 3, BYREF_NONE, BYREF_FORCE };
 #endif
 
 /* {{{ function_entry */
 function_entry parsekit_functions[] = {
-	PHP_FE(parsekit_compile_string,			second_arg_force_ref)
-	PHP_FE(parsekit_compile_file,			second_arg_force_ref)
+	PHP_FE(parsekit_compile_string,			php_parsekit_second_arg_force_ref)
+	PHP_FE(parsekit_compile_file,			php_parsekit_second_arg_force_ref)
 	PHP_FE(parsekit_opcode_flags,			NULL)
 	PHP_FE(parsekit_opcode_name,			NULL)
 	PHP_FE(parsekit_func_arginfo,			NULL)
