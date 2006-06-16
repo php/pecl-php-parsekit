@@ -30,13 +30,21 @@
      </filelist>
 
    <release>
+    <version>1.1</version>
+    <state>stable</state>
+    <date>2006-06-16</date>
+    <notes>Make 5.1/5.2 compatable by ifdefing out more opcodes
+Output sensible data for IS_CV nodes</notes>
+   </release>
+
+  <changelog>
+   <release>
      <version>1.0</version>
      <state>stable</state>
      <date>2004-10-31</date>
      <notes>#ifdef out extinct opcode constants and promote to stable</notes>
    </release>
 
-  <changelog>
    <release>
      <version>0.3.1</version>
      <state>beta</state>

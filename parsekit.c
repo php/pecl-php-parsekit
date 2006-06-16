@@ -1096,7 +1096,7 @@ zend_module_entry parsekit_module_entry = {
 	NULL, /* RSHUTDOWN */
 	PHP_MINFO(parsekit),
 #if ZEND_MODULE_API_NO >= 20010901
-	"0.3", /* Replace with version number for your extension */
+	PHP_PARSEKIT_EXTVER,
 #endif
 	STANDARD_MODULE_PROPERTIES
 };
