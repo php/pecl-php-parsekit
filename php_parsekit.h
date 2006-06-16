@@ -162,6 +162,10 @@ static php_parsekit_define_list php_parsekit_nodetype_names[] = {
 	{ IS_TMP_VAR, "IS_TMP_VAR" },
 	{ IS_VAR, "IS_VAR" },
 	{ IS_UNUSED, "IS_UNUSED" },
+#ifdef IS_CV
+/* PHP >= 5.1 */
+	{ IS_CV, "IS_CV" },
+#endif
 	{ 0, NULL }
 };
 

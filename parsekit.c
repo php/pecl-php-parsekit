@@ -55,7 +55,7 @@ static char* php_parsekit_define_name_ex(long val, php_parsekit_define_list *loo
 /* }}} */
 
 /* {{{ php_parsekit_parse_node */
-static void php_parsekit_parse_node(zval *return_value, znode *node, long flags, long options TSRMLS_DC)
+static void php_parsekit_parse_node(zval *return_value, zend_op_array *op_array, znode *node, long flags, long options TSRMLS_DC)
 {
 	array_init(return_value);
 	add_assoc_long(return_value, "type", node->op_type);
@@ -67,6 +67,12 @@ static void php_parsekit_parse_node(zval *return_value, znode *node, long flags,
 		zval_copy_ctor(tmpzval);
 		tmpzval->refcount = 1;
 		add_assoc_zval(return_value, "constant", tmpzval);
+#ifdef IS_CV
+/* PHP >= 5.1 */
+	} else if (node->op_type == IS_CV) {
+		add_assoc_long(return_value, "var", node->u.var);
+		add_assoc_stringl(return_value, "varname", op_array->vars[node->u.var].name, op_array->vars[node->u.var].name_len, 1);
+#endif
 	} else {
 		/* IS_VAR || IS_TMP_VAR || IS_UNUSED */
 		char sop[(sizeof(void *) * 2) + 1];
@@ -75,7 +81,7 @@ static void php_parsekit_parse_node(zval *return_value, znode *node, long flags,
 
 		if ((flags & PHP_PARSEKIT_VAR) ||
 			(options & PHP_PARSEKIT_ALL_ELEMENTS)) {
-			add_assoc_long(return_value, "var", node->u.var);
+			add_assoc_long(return_value, "var", node->u.var / sizeof(temp_variable));
 		} else if (options & PHP_PARSEKIT_ALWAYS_SET) {
 			add_assoc_null(return_value, "var");
 		}
@@ -115,7 +121,7 @@ static void php_parsekit_parse_node(zval *return_value, znode *node, long flags,
 /* }}} */
 
 /* {{{ php_parsekit_parse_op */
-static void php_parsekit_parse_op(zval *return_value, zend_op *op, long options TSRMLS_DC)
+static void php_parsekit_parse_op(zval *return_value, zend_op_array *op_array, zend_op *op, long options TSRMLS_DC)
 {
 	zval *result, *op1, *op2;
 	long flags = 0;
@@ -131,7 +137,7 @@ static void php_parsekit_parse_op(zval *return_value, zend_op *op, long options 
 	if ((options & PHP_PARSEKIT_ALL_ELEMENTS) ||
 		(flags & PHP_PARSEKIT_RESULT_USED)) {
 		MAKE_STD_ZVAL(result);
-		php_parsekit_parse_node(result, &(op->result), flags & PHP_PARSEKIT_RESULT_USED, options TSRMLS_CC);
+		php_parsekit_parse_node(result, op_array, &(op->result), flags & PHP_PARSEKIT_RESULT_USED, options TSRMLS_CC);
 		add_assoc_zval(return_value, "result", result);
 	} else if (options & PHP_PARSEKIT_ALWAYS_SET) {
 		add_assoc_null(return_value, "result");
@@ -140,7 +146,7 @@ static void php_parsekit_parse_op(zval *return_value, zend_op *op, long options 
 	if ((options & PHP_PARSEKIT_ALL_ELEMENTS) ||
 		(flags & PHP_PARSEKIT_OP1_USED)) {
 		MAKE_STD_ZVAL(op1);
-		php_parsekit_parse_node(op1, &(op->op1), flags & PHP_PARSEKIT_OP1_USED, options TSRMLS_CC);
+		php_parsekit_parse_node(op1, op_array, &(op->op1), flags & PHP_PARSEKIT_OP1_USED, options TSRMLS_CC);
 		add_assoc_zval(return_value, "op1", op1);
 	} else if (options & PHP_PARSEKIT_ALWAYS_SET) {
 		add_assoc_null(return_value, "op1");
@@ -149,7 +155,7 @@ static void php_parsekit_parse_op(zval *return_value, zend_op *op, long options 
 	if ((options & PHP_PARSEKIT_ALL_ELEMENTS) ||
 		(flags & PHP_PARSEKIT_OP2_USED)) {
 		MAKE_STD_ZVAL(op2);
-		php_parsekit_parse_node(op2, &(op->op2), flags & PHP_PARSEKIT_OP2_USED, options TSRMLS_CC);
+		php_parsekit_parse_node(op2, op_array, &(op->op2), flags & PHP_PARSEKIT_OP2_USED, options TSRMLS_CC);
 		add_assoc_zval(return_value, "op2", op2);
 	} else if (options & PHP_PARSEKIT_ALWAYS_SET) {
 		add_assoc_null(return_value, "op2");
@@ -413,7 +419,7 @@ static void php_parsekit_parse_op_array(zval *return_value, zend_op_array *ops, 
 		zval *zop;
 
 		MAKE_STD_ZVAL(zop);
-		php_parsekit_parse_op(zop, op, options TSRMLS_CC);
+		php_parsekit_parse_op(zop, ops, op, options TSRMLS_CC);
 		add_next_index_zval(tmpzval, zop);
 	}	
 	add_assoc_zval(return_value, "opcodes", tmpzval);
@@ -422,7 +428,7 @@ static void php_parsekit_parse_op_array(zval *return_value, zend_op_array *ops, 
 /* }}} */
 
 /* {{{ php_parsekit_parse_node_simple */
-static int php_parsekit_parse_node_simple(char **pret, znode *node, zend_op_array *oparray TSRMLS_DC)
+static int php_parsekit_parse_node_simple(char **pret, zend_op_array *op_array, znode *node, zend_op_array *oparray TSRMLS_DC)
 {
 	if (node->op_type == IS_UNUSED) {
 		if (node->u.var) {
@@ -510,13 +516,13 @@ static void php_parsekit_parse_op_array_simple(zval *return_value, zend_op_array
 		char *opline, *result, *op1, *op2;
 		int opline_len, freeit = 0;
 
-		if (php_parsekit_parse_node_simple(&result, &(op->result), ops TSRMLS_CC)) {
+		if (php_parsekit_parse_node_simple(&result, ops, &(op->result), ops TSRMLS_CC)) {
 			freeit |= 1;
 		}
-		if (php_parsekit_parse_node_simple(&op1, &(op->op1), ops TSRMLS_CC)) {
+		if (php_parsekit_parse_node_simple(&op1, ops, &(op->op1), ops TSRMLS_CC)) {
 			freeit |= 2;
 		}
-		if (php_parsekit_parse_node_simple(&op2, &(op->op2), ops TSRMLS_CC)) {
+		if (php_parsekit_parse_node_simple(&op2, ops, &(op->op2), ops TSRMLS_CC)) {
 			freeit |= 4;
 		}
 
