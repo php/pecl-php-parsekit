@@ -30,6 +30,14 @@
      </filelist>
 
    <release>
+    <version>1.2</version>
+    <state>stable</state>
+    <date>2006-11-01</date>
+    <notes>Bugfix #9143</notes>
+   </release>
+
+  <changelog>
+   <release>
     <version>1.1</version>
     <state>stable</state>
     <date>2006-06-16</date>
@@ -37,7 +45,6 @@
 Output sensible data for IS_CV nodes</notes>
    </release>
 
-  <changelog>
    <release>
      <version>1.0</version>
      <state>stable</state>

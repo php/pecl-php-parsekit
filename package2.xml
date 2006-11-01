@@ -16,20 +16,19 @@ This extension is meant for development and debug purposes only and contains som
   <active>yes</active>
  </lead>
 
- <date>2006-06-16</date>
- <time>13:35:59</time>
- <version>
-  <release>1.1</release>
-  <api>1.1</api>
- </version>
- <stability>
-  <release>stable</release>
-  <api>stable</api>
- </stability>
- <license uri="http://www.php.net/license">PHP</license>
- <notes>Make 5.1/5.2 compatable by ifdefing out more opcodes
-Output sensible data for IS_CV nodes
- </notes>
+ <date>2006-11-01</date>
+ <time>12:00:00</time>
+
+   <version>
+    <release>1.2</release>
+    <api>1.0</api>
+   </version>
+   <stability>
+    <release>stable</release>
+    <api>stable</api>
+   </stability>
+   <license uri="http://www.php.net/license">PHP</license>
+   <notes>Bugfix #9143</notes>
 
  <contents>
   <dir name="/">
@@ -58,6 +57,22 @@ Output sensible data for IS_CV nodes
  <extsrcrelease />
 
  <changelog>
+
+  <release>
+   <version>
+    <release>1.1</release>
+    <api>1.0</api>
+   </version>
+   <stability>
+    <release>stable</release>
+    <api>stable</api>
+   </stability>
+   <date>2006-06-16</date>
+   <license uri="http://www.php.net/license">PHP</license>
+   <notes>Make 5.1/5.2 compatable by ifdefing out more opcodes
+Output sensible data for IS_CV nodes
+   </notes>
+  </release>
 
   <release>
    <version>
