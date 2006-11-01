@@ -542,8 +542,11 @@ static void php_parsekit_parse_op_array_simple(zval *return_value, zend_op_array
 /* {{{ php_parsekit_pop_functions */
 static int php_parsekit_pop_functions(zval *return_value, HashTable *function_table, int target_count, long options TSRMLS_DC)
 {
+	HashPosition pos;
+
 	array_init(return_value);
 
+	zend_hash_internal_pointer_end_ex(function_table, &pos);
 	while (target_count < zend_hash_num_elements(function_table)) {
 		long func_index;
 		unsigned int func_name_len;
@@ -551,14 +554,21 @@ static int php_parsekit_pop_functions(zval *return_value, HashTable *function_ta
 		zend_function *function;
 		zval *function_ops;
 
-		zend_hash_internal_pointer_end(function_table);
-		if (zend_hash_get_current_data(function_table, (void **)&function) == FAILURE) {
+		if (zend_hash_get_current_data_ex(function_table, (void **)&function, &pos) == FAILURE) {
 			php_error_docref(NULL TSRMLS_CC, E_ERROR, "Unable to remove pollution from function table: Illegal function entry found.");
 			return FAILURE;
 		}
-		if (function->type != ZEND_USER_FUNCTION) {
-			php_error_docref(NULL TSRMLS_CC, E_ERROR, "Unable to remove pollution from function table: "
-							"Found %s where ZEND_USER_FUNCTION was expected.", 
+		if (function->type == ZEND_INTERNAL_FUNCTION) {
+			/* Inherited internal method */
+			zend_hash_move_backwards_ex(function_table, &pos);
+			target_count++;
+			continue;
+		} else if (function->type != ZEND_USER_FUNCTION) {
+			php_error_docref(NULL TSRMLS_CC, E_ERROR, "Unable to remove pollution from function table: %s%s%s - "
+							"Found %s where ZEND_USER_FUNCTION was expected.",
+							function->common.scope ? function->common.scope->name : "",
+							function->common.scope ? "::" : "",
+							function->common.function_name,
 							php_parsekit_define_name(function->type, php_parsekit_function_types, PHP_PARSEKIT_FUNCTYPE_UNKNOWN));
 			return FAILURE;
 		}
@@ -570,7 +580,9 @@ static int php_parsekit_pop_functions(zval *return_value, HashTable *function_ta
 		}
 		add_assoc_zval(return_value, function->common.function_name, function_ops);
 
-		if (zend_hash_get_current_key_ex(function_table, &func_name, &func_name_len, &func_index, 0, NULL) == HASH_KEY_IS_STRING) {
+		if (zend_hash_get_current_key_ex(function_table, &func_name, &func_name_len, &func_index, 0, &pos) == HASH_KEY_IS_STRING) {
+			zend_hash_move_backwards_ex(function_table, &pos);
+
 			/* TODO: dispose of the function properly */
 			if (zend_hash_del(function_table, func_name, func_name_len) == FAILURE) {
 				php_error_docref(NULL TSRMLS_CC, E_ERROR, "Unable to remove pollution from function table: Unknown hash_del failure.");
@@ -578,6 +590,7 @@ static int php_parsekit_pop_functions(zval *return_value, HashTable *function_ta
 			}
 		} else {
 			/* Absolutely no reason this should ever occur */
+			zend_hash_move_backwards_ex(function_table, &pos);
 			zend_hash_index_del(function_table, func_index);
 		}
 	}
@@ -766,8 +779,8 @@ static int php_parsekit_pop_classes(zval *return_value, HashTable *class_table, 
 		class_entry = (zend_class_entry*)pce;
 #endif
 		if (class_entry->type != ZEND_USER_CLASS) {
-			php_error_docref(NULL TSRMLS_CC, E_ERROR, "Unable to remove pollution from class table: "
-							"Found %s where ZEND_USER_CLASS was expected.", 
+			php_error_docref(NULL TSRMLS_CC, E_ERROR, "Unable to remove pollution from class table: %s - "
+							"Found %s where ZEND_USER_CLASS was expected.", class_entry->name,
 							php_parsekit_define_name(class_entry->type, php_parsekit_class_types, PHP_PARSEKIT_CLASSTYPE_UNKNOWN));
 			return FAILURE;
 		}
