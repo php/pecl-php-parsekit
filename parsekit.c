@@ -237,6 +237,7 @@ static void php_parsekit_derive_arginfo(zval *return_value, zend_op_array *op_ar
 		}
 	}
 }
+/* }}} */
 #endif
 
 /* {{{ php_parsekit_parse_op_array */
@@ -866,7 +867,13 @@ PHP_FUNCTION(parsekit_compile_string)
 	original_handle_op_arrays = CG(handle_op_arrays);
 	CG(handle_op_arrays) = 0;
 	PARSEKIT_G(in_parsekit_compile) = 1;
-	ops = compile_string(zcode, "Parsekit Compiler" TSRMLS_CC);
+
+	zend_try {
+		ops = compile_string(zcode, "Parsekit Compiler" TSRMLS_CC);
+	} zend_catch {
+		ops = NULL;
+	} zend_end_try();
+
 	PARSEKIT_G(in_parsekit_compile) = 0;
 	PARSEKIT_G(compile_errors) = NULL;
 	CG(handle_op_arrays) = original_handle_op_arrays;
@@ -907,7 +914,13 @@ PHP_FUNCTION(parsekit_compile_file)
 	original_handle_op_arrays = CG(handle_op_arrays);
 	CG(handle_op_arrays) = 0;
 	PARSEKIT_G(in_parsekit_compile) = 1;
-	ops = compile_filename(ZEND_INCLUDE, zfilename TSRMLS_CC);
+
+	zend_try {
+		ops = compile_filename(ZEND_INCLUDE, zfilename TSRMLS_CC);
+	} zend_catch {
+		ops = NULL;
+	} zend_end_try();
+
 	PARSEKIT_G(in_parsekit_compile) = 0;
 	PARSEKIT_G(compile_errors) = NULL;
 	CG(handle_op_arrays) = original_handle_op_arrays;
