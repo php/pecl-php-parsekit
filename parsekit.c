@@ -1122,7 +1122,7 @@ zend_module_entry parsekit_module_entry = {
 	NULL, /* RSHUTDOWN */
 	PHP_MINFO(parsekit),
 #if ZEND_MODULE_API_NO >= 20010901
-	PHP_PARSEKIT_EXTVER,
+	PHP_PARSEKIT_VERSION,
 #endif
 	STANDARD_MODULE_PROPERTIES
 };
@@ -1239,6 +1239,7 @@ PHP_MINFO_FUNCTION(parsekit)
 {
 	php_info_print_table_start();
 	php_info_print_table_header(2, "parsekit support", "enabled");
+	php_info_print_table_row(2, "version", PHP_PARSEKIT_VERSION);
 	php_info_print_table_end();
 }
 /* }}} */

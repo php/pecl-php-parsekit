@@ -21,7 +21,7 @@
 #ifndef PHP_PARSEKIT_H
 #define PHP_PARSEKIT_H
 
-#define PHP_PARSEKIT_EXTVER		"1.2"
+#define PHP_PARSEKIT_VERSION "1.2.1-dev"
 
 #ifdef ZTS
 #include "TSRM.h"
