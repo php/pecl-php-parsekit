@@ -105,6 +105,9 @@ static void php_parsekit_parse_node(zval *return_value, zend_op_array *op_array,
 		if ((flags & PHP_PARSEKIT_JMP_ADDR) ||
 			(options & PHP_PARSEKIT_ALL_ELEMENTS)) {
 			add_assoc_string(return_value, "jmp_addr", sop, 1);
+			snprintf(sop, sizeof(sop)-1, "%u",
+					((unsigned int)((char*)node->u.var - (char*)op_array->opcodes))/sizeof(zend_op));
+			add_assoc_string(return_value, "jmp_offset", sop, 1); 
 		} else if (options & PHP_PARSEKIT_ALWAYS_SET) {
 			add_assoc_null(return_value, "jmp_addr");
 		}
@@ -129,6 +132,7 @@ static void php_parsekit_parse_op(zval *return_value, zend_op_array *op_array, z
 	array_init(return_value);
 
 	/* op->handler */
+	add_assoc_long(return_value, "address", (unsigned int)(&(op->opcode)));
 	add_assoc_long(return_value, "opcode", op->opcode);
 	add_assoc_string(return_value, "opcode_name", php_parsekit_define_name_ex(op->opcode, php_parsekit_opcode_names, &flags, PHP_PARSEKIT_OPCODE_UNKNOWN) , 1);
 	add_assoc_long(return_value, "flags", flags);
