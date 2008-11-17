@@ -1092,7 +1092,6 @@ PHP_FUNCTION(parsekit_func_arginfo)
 /* }}} */
 
 #ifdef ZEND_ENGINE_2
-static
 	ZEND_BEGIN_ARG_INFO(php_parsekit_second_arg_force_ref, 0)
 		ZEND_ARG_PASS_INFO(0)
 		ZEND_ARG_PASS_INFO(1)
