@@ -10,10 +10,22 @@ http://pear.php.net/dtd/package-2.0.xsd">
 This extension is meant for development and debug purposes only and contains some code which is potentially non-threadsafe.
  </description>
  <lead>
+  <name>Sean Coates</name>
+  <user>sean</user>
+  <email>sean@php.net</email>
+  <active>yes</active>
+ </lead>
+ <developer>
+  <name>Elizabeth M. Smith</name>
+  <user>auroraeosrose</user>
+  <email>auroraeosrose@php.net</email>
+  <active>yes</active>
+ </developer>
+ <lead>
   <name>Sara Golemon</name>
   <user>pollita</user>
   <email>pollita@php.net</email>
-  <active>yes</active>
+  <active>no</active>
  </lead>
 
  <date>2006-11-01</date>
