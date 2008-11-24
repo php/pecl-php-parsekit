@@ -27,6 +27,14 @@
 #include "ext/standard/info.h"
 #include "php_parsekit.h"
 
+#ifndef Z_REFCOUNT_P
+#define Z_REFCOUNT_P(pz)              (pz)->refcount
+#endif
+
+#ifndef Z_SET_REFCOUNT_P
+#define Z_SET_REFCOUNT_P(pz, rc)      (pz)->refcount = rc
+#endif
+
 ZEND_DECLARE_MODULE_GLOBALS(parsekit)
 /* Potentially thread-unsafe, see MINIT_FUNCTION */
 void (*php_parsekit_original_error_function)(int type, const char *error_filename, const uint error_lineno, const char *format, va_list args);
@@ -65,7 +73,7 @@ static void php_parsekit_parse_node(zval *return_value, zend_op_array *op_array,
 		MAKE_STD_ZVAL(tmpzval);
 		*tmpzval = node->u.constant;
 		zval_copy_ctor(tmpzval);
-		tmpzval->refcount = 1;
+		Z_SET_REFCOUNT_P(tmpzval, 1);
 		add_assoc_zval(return_value, "constant", tmpzval);
 #ifdef IS_CV
 /* PHP >= 5.1 */
@@ -234,7 +242,7 @@ static void php_parsekit_derive_arginfo(zval *return_value, zend_op_array *op_ar
 				*def = opcodes[(i*2)+1].op2.u.constant;
 				zval_copy_ctor(def);
 				add_assoc_zval(tmpzval, "default", def);
-				def->refcount = 1;
+				Z_SET_REFCOUNT_P(tmpzval, 1);
 			}
 
 			add_next_index_zval(return_value, tmpzval);
@@ -319,7 +327,10 @@ static void php_parsekit_parse_op_array(zval *return_value, zend_op_array *ops, 
 		add_assoc_null(return_value, "try_catch_array");
 	}
 
+#ifndef ZEND_ACC_CLOSURE
+/* PHP<5.3 */
 	add_assoc_bool(return_value, "uses_this", ops->uses_this);
+#endif
 	add_assoc_long(return_value, "line_start", ops->line_start);
 	add_assoc_long(return_value, "line_end", ops->line_end);
 
@@ -364,7 +375,7 @@ static void php_parsekit_parse_op_array(zval *return_value, zend_op_array *ops, 
 /* ZE1 and ZE2 */
 
 	add_assoc_bool(return_value, "return_reference", ops->return_reference);
-	add_assoc_long(return_value, "refcount", *(ops->refcount));
+	add_assoc_long(return_value, "refcount", Z_REFCOUNT_P(ops));
 	add_assoc_long(return_value, "last", ops->last);
 	add_assoc_long(return_value, "size", ops->size);
 	add_assoc_long(return_value, "T", ops->T);
@@ -722,7 +733,7 @@ static int php_parsekit_parse_class_entry(zval *return_value, zend_class_entry *
 		add_assoc_null(return_value, "doc_comment");
 	}
 
-	add_assoc_long(return_value, "refcount", ce->refcount);
+	add_assoc_long(return_value, "refcount", Z_REFCOUNT_P(ce));
 
 #else
 /* ZE1 class_entry members */
@@ -852,7 +863,7 @@ PHP_FUNCTION(parsekit_compile_string)
 {
 	int original_num_functions = zend_hash_num_elements(EG(function_table));
 	int original_num_classes = zend_hash_num_elements(EG(class_table));
-	zend_uchar original_handle_op_arrays;
+	zend_uchar original_compiler_options;
 	zend_op_array *ops;
 	zval *zcode, *zerrors = NULL;
 	long options = PHP_PARSEKIT_QUIET;
@@ -868,8 +879,13 @@ PHP_FUNCTION(parsekit_compile_string)
 	}
 
 	convert_to_string(zcode);
-	original_handle_op_arrays = CG(handle_op_arrays);
+#ifdef ZEND_COMPILE_HANDLE_OP_ARRAY
+	original_compiler_options = CG(compiler_options);
+	CG(compiler_options) = CG(compiler_options) & ~ZEND_COMPILE_HANDLE_OP_ARRAY;
+#else
+	original_compiler_options = CG(handle_op_arrays);
 	CG(handle_op_arrays) = 0;
+#endif
 	PARSEKIT_G(in_parsekit_compile) = 1;
 
 	zend_try {
@@ -880,8 +896,12 @@ PHP_FUNCTION(parsekit_compile_string)
 
 	PARSEKIT_G(in_parsekit_compile) = 0;
 	PARSEKIT_G(compile_errors) = NULL;
-	CG(handle_op_arrays) = original_handle_op_arrays;
 
+#ifdef ZEND_COMPILE_HANDLE_OP_ARRAY
+	CG(compiler_options) = original_compiler_options;
+#else
+	CG(handle_op_arrays) = original_compiler_options;
+#endif
 
 	if (ops) {
 		php_parsekit_common(return_value, original_num_functions, original_num_classes, ops, options TSRMLS_CC);
@@ -899,7 +919,7 @@ PHP_FUNCTION(parsekit_compile_file)
 {
 	int original_num_functions = zend_hash_num_elements(EG(function_table));
 	int original_num_classes = zend_hash_num_elements(EG(class_table));
-	zend_uchar original_handle_op_arrays;
+	zend_uchar original_compiler_options;
 	zend_op_array *ops;
 	zval *zfilename, *zerrors = NULL;
 	long options = PHP_PARSEKIT_QUIET;
@@ -915,8 +935,13 @@ PHP_FUNCTION(parsekit_compile_file)
 	}
 
 	convert_to_string(zfilename);
-	original_handle_op_arrays = CG(handle_op_arrays);
+#ifdef ZEND_COMPILE_HANDLE_OP_ARRAY
+	original_compiler_options = CG(compiler_options);
+	CG(compiler_options) = CG(compiler_options) & ~ZEND_COMPILE_HANDLE_OP_ARRAY;
+#else
+	original_compiler_options = CG(handle_op_arrays);
 	CG(handle_op_arrays) = 0;
+#endif
 	PARSEKIT_G(in_parsekit_compile) = 1;
 
 	zend_try {
@@ -927,7 +952,12 @@ PHP_FUNCTION(parsekit_compile_file)
 
 	PARSEKIT_G(in_parsekit_compile) = 0;
 	PARSEKIT_G(compile_errors) = NULL;
-	CG(handle_op_arrays) = original_handle_op_arrays;
+
+#ifdef ZEND_COMPILE_HANDLE_OP_ARRAY
+	CG(compiler_options) = original_compiler_options;
+#else
+	CG(handle_op_arrays) = original_compiler_options;
+#endif
 
 	if (ops) {
 		php_parsekit_common(return_value, original_num_functions, original_num_classes, ops, options TSRMLS_CC);
