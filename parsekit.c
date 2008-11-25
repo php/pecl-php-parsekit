@@ -375,7 +375,7 @@ static void php_parsekit_parse_op_array(zval *return_value, zend_op_array *ops, 
 /* ZE1 and ZE2 */
 
 	add_assoc_bool(return_value, "return_reference", ops->return_reference);
-	add_assoc_long(return_value, "refcount", Z_REFCOUNT_P(ops));
+	add_assoc_long(return_value, "refcount", *(ops->refcount));
 	add_assoc_long(return_value, "last", ops->last);
 	add_assoc_long(return_value, "size", ops->size);
 	add_assoc_long(return_value, "T", ops->T);
