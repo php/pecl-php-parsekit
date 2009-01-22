@@ -279,7 +279,7 @@ static void php_parsekit_parse_op_array(zval *return_value, zend_op_array *ops, 
 		add_assoc_null(return_value, "scope");
 	}
 	add_assoc_long(return_value, "fn_flags", ops->fn_flags);
-	if (ops->prototype) {
+	if (ops->function_name && ops->prototype) {
 		MAKE_STD_ZVAL(tmpzval);
 		array_init(tmpzval);
 		add_assoc_long(tmpzval, "type", ops->prototype->type);
