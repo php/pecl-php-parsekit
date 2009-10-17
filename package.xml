@@ -36,7 +36,7 @@
      </filelist>
 
    <release>
-    <version>1.3</version>
+    <version>1.3.0</version>
     <state>stable</state>
     <date>2009-10-17</date>
     <notes>Builds on PHP 5.3</notes>
