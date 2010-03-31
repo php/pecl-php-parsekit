@@ -1130,8 +1130,8 @@ PHP_FUNCTION(parsekit_func_arginfo)
 static unsigned char php_parsekit_second_arg_force_ref[] = { 3, BYREF_NONE, BYREF_FORCE };
 #endif
 
-/* {{{ function_entry */
-function_entry parsekit_functions[] = {
+/* {{{ zend_function_entry */
+zend_function_entry parsekit_functions[] = {
 	PHP_FE(parsekit_compile_string,			php_parsekit_second_arg_force_ref)
 	PHP_FE(parsekit_compile_file,			php_parsekit_second_arg_force_ref)
 	PHP_FE(parsekit_opcode_flags,			NULL)
